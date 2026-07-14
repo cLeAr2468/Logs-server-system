@@ -18,6 +18,8 @@ return [
     'allowed_origins_patterns' => [
         // Allow all Vercel preview deployments
         '/^https:\/\/.*\.vercel\.app$/',
+        // Allow all Cloudflare Pages deployments
+        '/^https:\/\/.*\.pages\.dev$/',
     ],
     
     'allowed_headers' => ['*'],
