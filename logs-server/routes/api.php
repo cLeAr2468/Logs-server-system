@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\DB;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\TransactionController;
@@ -11,6 +12,16 @@ use App\Http\Controllers\StaffController;
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\MasterlistController;
 use App\Http\Controllers\ReportController;
+
+// Health check endpoint for deployment monitoring
+Route::get('/health', function () {
+    return response()->json([
+        'status' => 'ok',
+        'service' => 'NWSSU Logs System API',
+        'timestamp' => now()->toIso8601String(),
+        'database' => DB::connection()->getPdo() ? 'connected' : 'disconnected',
+    ]);
+});
 
 Route::get('/test', function () {
     return response()->json([
