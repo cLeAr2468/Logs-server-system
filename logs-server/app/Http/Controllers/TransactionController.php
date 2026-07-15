@@ -242,51 +242,25 @@ class TransactionController extends Controller
         $oldStatus = $transaction->status;
         $newStatus = $request->status;
 
-        // Send email notification FIRST if status is changing to approved, rejected, or completed
-        if (in_array($newStatus, ['approved', 'rejected', 'completed']) && $oldStatus !== $newStatus) {
-            try {
-                $user = $transaction->user;
-                
-                if (!$user) {
-                    return response()->json([
-                        'message' => 'User not found for this transaction'
-                    ], 404);
-                }
-
-                if (!$user->email) {
-                    return response()->json([
-                        'message' => 'User email not found. Cannot send notification.'
-                    ], 400);
-                }
-
-                $studentName = $user->fname . ' ' . $user->lname;
-
-                // Try to send email BEFORE updating status
-                Mail::to($user->email)->send(new TransactionStatusMail($transaction, $newStatus, $studentName));
-                
-                // Log successful email
-                \Log::info("Transaction status email sent successfully to {$user->email} for transaction ID: {$transaction->id}");
-                
-            } catch (\Exception $e) {
-                // Log detailed error
-                \Log::error("Failed to send transaction status email to {$user->email}: " . $e->getMessage());
-                \Log::error("Stack trace: " . $e->getTraceAsString());
-                
-                // Return error - DO NOT update status if email fails
-                return response()->json([
-                    'message' => 'Failed to send email notification. Status not updated.',
-                    'error' => 'Email notification failed: ' . $e->getMessage(),
-                    'details' => 'Please check your email configuration and try again.'
-                ], 500);
-            }
-        }
-
-        // Only update status if email was sent successfully (or if it's not a status that requires email)
+        // Update status
         $transaction->status = $newStatus;
         $transaction->save();
 
+        // Send email notification if status changed to approved, rejected, or completed
+        if (in_array($newStatus, ['approved', 'rejected', 'completed']) && $oldStatus !== $newStatus) {
+            try {
+                $user = $transaction->user;
+                $studentName = $user->fname . ' ' . $user->lname;
+
+                Mail::to($user->email)->send(new TransactionStatusMail($transaction, $newStatus, $studentName));
+            } catch (\Exception $e) {
+                // Log error but don't fail the request
+                \Log::error('Failed to send transaction status email: ' . $e->getMessage());
+            }
+        }
+
         return response()->json([
-            'message' => 'Transaction status updated successfully and email notification sent',
+            'message' => 'Transaction status updated successfully',
             'transaction' => $transaction
         ], 200);
     }
