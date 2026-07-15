@@ -386,11 +386,40 @@ class AuthController extends Controller
 
         // Send OTP via email
         try {
-            Mail::to($user->email)->send(new SendOtpMail($otp, $user->fname));
+            // Validate email format before sending
+            if (!filter_var($user->email, FILTER_VALIDATE_EMAIL)) {
+                \Log::error("Invalid email format for user: {$user->email}");
+                return response()->json([
+                    'message' => 'Invalid email format in database. Please contact administrator.',
+                    'error' => 'invalid_email_format'
+                ], 400);
+            }
+
+            // Check if user has fname
+            if (empty($user->fname)) {
+                \Log::warning("User {$user->email} has no first name");
+                $userName = 'User';
+            } else {
+                $userName = $user->fname;
+            }
+
+            \Log::info("Attempting to send OTP to {$user->email} ({$userType}) - Name: {$userName}");
+            
+            Mail::to($user->email)->send(new SendOtpMail($otp, $userName));
+            
+            \Log::info("OTP email sent successfully to {$user->email}");
         } catch (\Exception $e) {
+            \Log::error("Failed to send OTP email to {$user->email}: " . $e->getMessage());
+            \Log::error("Stack trace: " . $e->getTraceAsString());
+            
             return response()->json([
                 'message' => 'Failed to send OTP email. Please try again later.',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
+                'debug' => [
+                    'email' => $user->email,
+                    'user_type' => $userType,
+                    'error_class' => get_class($e)
+                ]
             ], 500);
         }
 
