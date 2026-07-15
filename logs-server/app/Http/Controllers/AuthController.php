@@ -363,8 +363,9 @@ class AuthController extends Controller
 
         if (!$user) {
             return response()->json([
-                'message' => 'If this email exists in our system, you will receive a password reset code.'
-            ], 200); // Don't reveal if email exists for security
+                'message' => 'Email not found. Please register first.',
+                'error' => 'email_not_found'
+            ], 404);
         }
 
         // Generate 6-digit OTP
