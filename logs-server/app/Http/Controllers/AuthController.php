@@ -386,26 +386,9 @@ class AuthController extends Controller
 
         // Send OTP via email
         try {
-            // Validate email format before sending
-            if (!filter_var($user->email, FILTER_VALIDATE_EMAIL)) {
-                \Log::error("Invalid email format for user: {$user->email}");
-                return response()->json([
-                    'message' => 'Invalid email format in database. Please contact administrator.',
-                    'error' => 'invalid_email_format'
-                ], 400);
-            }
-
-            // Check if user has fname
-            if (empty($user->fname)) {
-                \Log::warning("User {$user->email} has no first name");
-                $userName = 'User';
-            } else {
-                $userName = $user->fname;
-            }
-
-            \Log::info("Attempting to send OTP to {$user->email} ({$userType}) - Name: {$userName}");
+            \Log::info("Attempting to send OTP to {$user->email} ({$userType})");
             
-            Mail::to($user->email)->send(new SendOtpMail($otp, $userName));
+            Mail::to($user->email)->send(new SendOtpMail($otp, $user->fname ?? 'User'));
             
             \Log::info("OTP email sent successfully to {$user->email}");
         } catch (\Exception $e) {
@@ -414,12 +397,7 @@ class AuthController extends Controller
             
             return response()->json([
                 'message' => 'Failed to send OTP email. Please try again later.',
-                'error' => $e->getMessage(),
-                'debug' => [
-                    'email' => $user->email,
-                    'user_type' => $userType,
-                    'error_class' => get_class($e)
-                ]
+                'error' => $e->getMessage()
             ], 500);
         }
 
