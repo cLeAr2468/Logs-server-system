@@ -388,7 +388,7 @@ class AuthController extends Controller
         try {
             \Log::info("Attempting to send OTP to {$user->email} ({$userType})");
             
-            Mail::to($user->email)->send(new SendOtpMail($otp, $user->fname ?? 'User'));
+            Mail::to($user->email)->send(new SendOtpMail($otp, $user->email ?? 'User'));
             
             \Log::info("OTP email sent successfully to {$user->email}");
         } catch (\Exception $e) {
