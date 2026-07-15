@@ -387,10 +387,30 @@ class AuthController extends Controller
         // Send OTP via email
         try {
             Mail::to($user->email)->send(new SendOtpMail($otp, $user->email));
+            
+            // Log email sending for debugging
+            \Log::info('OTP Email sent successfully', [
+                'email' => $user->email,
+                'user_type' => $userType,
+                'otp' => $otp
+            ]);
         } catch (\Exception $e) {
+            // Log the full error for debugging
+            \Log::error('Failed to send OTP email', [
+                'email' => $user->email,
+                'user_type' => $userType,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
             return response()->json([
                 'message' => 'Failed to send OTP email. Please try again later.',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
+                'debug_info' => [
+                    'mail_driver' => config('mail.default'),
+                    'from_address' => config('mail.from.address'),
+                    'to_address' => $user->email
+                ]
             ], 500);
         }
 
@@ -475,10 +495,28 @@ class AuthController extends Controller
         // Send OTP via email
         try {
             Mail::to($user->email)->send(new SendOtpMail($otp, $user->email));
+            
+            // Log email sending for debugging
+            \Log::info('OTP Email resent successfully', [
+                'email' => $user->email,
+                'otp' => $otp
+            ]);
         } catch (\Exception $e) {
+            // Log the full error for debugging
+            \Log::error('Failed to resend OTP email', [
+                'email' => $user->email,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
             return response()->json([
                 'message' => 'Failed to resend OTP email. Please try again later.',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
+                'debug_info' => [
+                    'mail_driver' => config('mail.default'),
+                    'from_address' => config('mail.from.address'),
+                    'to_address' => $user->email
+                ]
             ], 500);
         }
 

@@ -247,22 +247,61 @@ class TransactionController extends Controller
         $transaction->save();
 
         // Send email notification if status changed to approved, rejected, or completed
+        $emailSent = false;
+        $emailError = null;
+        
         if (in_array($newStatus, ['approved', 'rejected', 'completed']) && $oldStatus !== $newStatus) {
             try {
                 $user = $transaction->user;
                 $studentName = $user->fname . ' ' . $user->lname;
 
                 Mail::to($user->email)->send(new TransactionStatusMail($transaction, $newStatus, $studentName));
+                
+                // Log successful email send
+                \Log::info('Transaction status email sent successfully', [
+                    'transaction_id' => $transaction->id,
+                    'email' => $user->email,
+                    'status' => $newStatus,
+                    'student_name' => $studentName
+                ]);
+                
+                $emailSent = true;
             } catch (\Exception $e) {
-                // Log error but don't fail the request
-                \Log::error('Failed to send transaction status email: ' . $e->getMessage());
+                // Log detailed error
+                \Log::error('Failed to send transaction status email', [
+                    'transaction_id' => $transaction->id,
+                    'email' => $user->email ?? 'unknown',
+                    'status' => $newStatus,
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                    'mail_driver' => config('mail.default'),
+                    'from_address' => config('mail.from.address')
+                ]);
+                
+                $emailError = $e->getMessage();
+                // Don't fail the request, but include in response
             }
         }
 
-        return response()->json([
+        $response = [
             'message' => 'Transaction status updated successfully',
             'transaction' => $transaction
-        ], 200);
+        ];
+        
+        // Include email status in response for debugging
+        if (in_array($newStatus, ['approved', 'rejected', 'completed']) && $oldStatus !== $newStatus) {
+            $response['email_sent'] = $emailSent;
+            if (!$emailSent && $emailError) {
+                $response['email_error'] = $emailError;
+                $response['email_debug'] = [
+                    'mail_driver' => config('mail.default'),
+                    'from_address' => config('mail.from.address'),
+                    'to_address' => $transaction->user->email ?? 'unknown'
+                ];
+            }
+        }
+        
+        return response()->json($response, 200);
     }
 
     /**
