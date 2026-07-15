@@ -386,15 +386,8 @@ class AuthController extends Controller
 
         // Send OTP via email
         try {
-            \Log::info("Attempting to send OTP to {$user->email} ({$userType})");
-            
-            Mail::to($user->email)->send(new SendOtpMail($otp, $user->email ?? 'User'));
-            
-            \Log::info("OTP email sent successfully to {$user->email}");
+            Mail::to($user->email)->send(new SendOtpMail($otp, $user->email));
         } catch (\Exception $e) {
-            \Log::error("Failed to send OTP email to {$user->email}: " . $e->getMessage());
-            \Log::error("Stack trace: " . $e->getTraceAsString());
-            
             return response()->json([
                 'message' => 'Failed to send OTP email. Please try again later.',
                 'error' => $e->getMessage()
@@ -481,7 +474,7 @@ class AuthController extends Controller
 
         // Send OTP via email
         try {
-            Mail::to($user->email)->send(new SendOtpMail($otp, $user->fname));
+            Mail::to($user->email)->send(new SendOtpMail($otp, $user->email));
         } catch (\Exception $e) {
             return response()->json([
                 'message' => 'Failed to resend OTP email. Please try again later.',
