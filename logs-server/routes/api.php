@@ -140,6 +140,7 @@ Route::middleware('admin.auth')->group(function () {
     // Admin Dashboard (admin/staff access)
     Route::get('/admin/dashboard/statistics', [DashboardController::class, 'getAdminStatistics']);
     Route::get('/admin/dashboard/recent-transactions', [DashboardController::class, 'getRecentTransactions']);
+    Route::get('/admin/dashboard/all-transactions', [DashboardController::class, 'getAllRecentTransactions']);
     Route::get('/admin/dashboard/performance', [DashboardController::class, 'getPerformanceSummary']);
 });
 
