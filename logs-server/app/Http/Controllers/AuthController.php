@@ -371,20 +371,7 @@ class AuthController extends Controller
         // Generate 6-digit OTP
         $otp = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
 
-        // Delete any existing unused tokens for this email
-        PasswordResetToken::where('email', $request->email)
-            ->where('is_used', false)
-            ->delete();
-
-        // Create new password reset token
-        $resetToken = PasswordResetToken::create([
-            'email' => $request->email,
-            'otp' => $otp,
-            'expires_at' => now()->addMinutes(5), // OTP expires in 5 minutes
-            'is_used' => false,
-        ]);
-
-        // Send OTP via email
+        // Send OTP via email FIRST (before saving to database)
         try {
             Mail::to($user->email)->send(new SendOtpMail($otp, $user->email));
             
@@ -403,16 +390,27 @@ class AuthController extends Controller
                 'trace' => $e->getTraceAsString()
             ]);
             
+            // Don't save OTP if email failed
             return response()->json([
-                'message' => 'Failed to send OTP email. Please try again later.',
-                'error' => $e->getMessage(),
-                'debug_info' => [
-                    'mail_driver' => config('mail.default'),
-                    'from_address' => config('mail.from.address'),
-                    'to_address' => $user->email
-                ]
+                'message' => 'Failed to send OTP email. Please check your email address and try again.',
+                'error' => 'email_send_failed',
+                'details' => config('app.debug') ? $e->getMessage() : 'Email service temporarily unavailable'
             ], 500);
         }
+
+        // Only save OTP to database if email was sent successfully
+        // Delete any existing unused tokens for this email
+        PasswordResetToken::where('email', $request->email)
+            ->where('is_used', false)
+            ->delete();
+
+        // Create new password reset token
+        $resetToken = PasswordResetToken::create([
+            'email' => $request->email,
+            'otp' => $otp,
+            'expires_at' => now()->addMinutes(5), // OTP expires in 5 minutes
+            'is_used' => false,
+        ]);
 
         return response()->json([
             'message' => 'OTP sent successfully to your email',
@@ -479,20 +477,7 @@ class AuthController extends Controller
         // Generate new 6-digit OTP
         $otp = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
 
-        // Delete any existing unused tokens for this email
-        PasswordResetToken::where('email', $request->email)
-            ->where('is_used', false)
-            ->delete();
-
-        // Create new password reset token
-        $resetToken = PasswordResetToken::create([
-            'email' => $request->email,
-            'otp' => $otp,
-            'expires_at' => now()->addMinutes(5),
-            'is_used' => false,
-        ]);
-
-        // Send OTP via email
+        // Send OTP via email FIRST (before saving to database)
         try {
             Mail::to($user->email)->send(new SendOtpMail($otp, $user->email));
             
@@ -509,16 +494,27 @@ class AuthController extends Controller
                 'trace' => $e->getTraceAsString()
             ]);
             
+            // Don't save OTP if email failed
             return response()->json([
                 'message' => 'Failed to resend OTP email. Please try again later.',
-                'error' => $e->getMessage(),
-                'debug_info' => [
-                    'mail_driver' => config('mail.default'),
-                    'from_address' => config('mail.from.address'),
-                    'to_address' => $user->email
-                ]
+                'error' => 'email_send_failed',
+                'details' => config('app.debug') ? $e->getMessage() : 'Email service temporarily unavailable'
             ], 500);
         }
+
+        // Only save OTP to database if email was sent successfully
+        // Delete any existing unused tokens for this email
+        PasswordResetToken::where('email', $request->email)
+            ->where('is_used', false)
+            ->delete();
+
+        // Create new password reset token
+        $resetToken = PasswordResetToken::create([
+            'email' => $request->email,
+            'otp' => $otp,
+            'expires_at' => now()->addMinutes(5),
+            'is_used' => false,
+        ]);
 
         return response()->json([
             'message' => 'OTP resent successfully to your email',
