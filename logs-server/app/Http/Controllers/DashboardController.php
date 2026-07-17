@@ -145,60 +145,41 @@ class DashboardController extends Controller
      */
     public function getAdminStatistics(Request $request)
     {
-        // Get date range from request
+        // Get date range from request, default to current month
         $startDate = $request->input('start_date');
         $endDate = $request->input('end_date');
 
-        $query = Transaction::query();
-
-        // Apply date range filter if provided
-        if ($startDate && $endDate) {
-            $query->whereBetween('created_at', [$startDate, $endDate]);
-        } else {
-            // Fallback to current month if no date range provided
-            $query->whereYear('created_at', date('Y'))
-                  ->whereMonth('created_at', date('n'));
+        // If no date range provided, default to current month
+        if (!$startDate || !$endDate) {
+            $startDate = date('Y-m-01'); // First day of current month
+            $endDate = date('Y-m-t'); // Last day of current month
         }
 
-        // Total transactions for the selected period
-        $totalTransactions = $query->count();
+        // Total transactions for the selected date range
+        $totalTransactions = Transaction::whereBetween('created_at', [$startDate . ' 00:00:00', $endDate . ' 23:59:59'])
+            ->count();
 
         // Monthly target (you can make this configurable)
         $monthlyTarget = 6500;
         $targetPercentage = $monthlyTarget > 0 ? round(($totalTransactions / $monthlyTarget) * 100) : 0;
 
-        // Pending requests for the selected period
-        $pendingQuery = Transaction::where('status', 'pending');
-        if ($startDate && $endDate) {
-            $pendingQuery->whereBetween('created_at', [$startDate, $endDate]);
-        } else {
-            $pendingQuery->whereYear('created_at', date('Y'))
-                        ->whereMonth('created_at', date('n'));
-        }
-        $pendingRequests = $pendingQuery->count();
+        // Pending requests for the selected date range
+        $pendingRequests = Transaction::where('status', 'pending')
+            ->whereBetween('created_at', [$startDate . ' 00:00:00', $endDate . ' 23:59:59'])
+            ->count();
         $pendingTrend = '+3.1%'; // You can calculate this by comparing with previous period
 
         // Completed services
-        $completedQuery = Transaction::where('status', 'completed');
-        if ($startDate && $endDate) {
-            $completedQuery->whereBetween('created_at', [$startDate, $endDate]);
-        } else {
-            $completedQuery->whereYear('created_at', date('Y'))
-                          ->whereMonth('created_at', date('n'));
-        }
-        $completedServices = $completedQuery->count();
+        $completedServices = Transaction::whereBetween('created_at', [$startDate . ' 00:00:00', $endDate . ' 23:59:59'])
+            ->where('status', 'completed')
+            ->count();
         $completionRate = $totalTransactions > 0 ? round(($completedServices / $totalTransactions) * 100) : 0;
 
         // Feedback score
-        $feedbackQuery = Feedback::query();
-        if ($startDate && $endDate) {
-            $feedbackQuery->whereBetween('created_at', [$startDate, $endDate]);
-        } else {
-            $feedbackQuery->whereYear('created_at', date('Y'))
-                         ->whereMonth('created_at', date('n'));
-        }
-        $avgRating = $feedbackQuery->avg('rating') ?? 0;
-        $feedbackCount = $feedbackQuery->count();
+        $avgRating = Feedback::whereBetween('created_at', [$startDate . ' 00:00:00', $endDate . ' 23:59:59'])
+            ->avg('rating') ?? 0;
+        $feedbackCount = Feedback::whereBetween('created_at', [$startDate . ' 00:00:00', $endDate . ' 23:59:59'])
+            ->count();
 
         return response()->json([
             'statistics' => [
@@ -221,8 +202,6 @@ class DashboardController extends Controller
     public function getRecentTransactions(Request $request)
     {
         $limit = $request->input('limit', 10);
-        $month = $request->input('month');
-        $year = $request->input('year');
         $startDate = $request->input('start_date');
         $endDate = $request->input('end_date');
 
@@ -231,11 +210,7 @@ class DashboardController extends Controller
 
         // Filter by date range if provided
         if ($startDate && $endDate) {
-            $query->whereBetween('created_at', [$startDate, $endDate]);
-        } elseif ($month && $year) {
-            // Fallback to month/year if date range not provided
-            $query->whereYear('created_at', $year)
-                  ->whereMonth('created_at', $month);
+            $query->whereBetween('created_at', [$startDate . ' 00:00:00', $endDate . ' 23:59:59']);
         }
 
         $transactions = $query->limit($limit)
@@ -258,54 +233,6 @@ class DashboardController extends Controller
     }
 
     /**
-     * Get all recent transactions with pagination (for recent-transact page)
-     */
-    public function getAllRecentTransactions(Request $request)
-    {
-        $perPage = $request->input('per_page', 20);
-        $startDate = $request->input('start_date');
-        $endDate = $request->input('end_date');
-        $search = $request->input('search');
-
-        $query = Transaction::with('user')
-            ->orderBy('created_at', 'desc');
-
-        // Filter by date range if provided
-        if ($startDate && $endDate) {
-            $query->whereBetween('created_at', [$startDate, $endDate]);
-        }
-
-        // Search filter
-        if ($search) {
-            $query->where(function($q) use ($search) {
-                $q->whereHas('user', function($userQuery) use ($search) {
-                    $userQuery->where('fname', 'like', "%{$search}%")
-                             ->orWhere('lname', 'like', "%{$search}%");
-                })
-                ->orWhere('purpose', 'like', "%{$search}%")
-                ->orWhere('brgy', 'like', "%{$search}%")
-                ->orWhere('municipality', 'like', "%{$search}%");
-            });
-        }
-
-        $transactions = $query->paginate($perPage)
-            ->through(function ($transaction) {
-                return [
-                    'id' => $transaction->id,
-                    'date' => $transaction->created_at->format('M d, Y'),
-                    'student' => $transaction->user ? $transaction->user->fname . ' ' . $transaction->user->lname : 'N/A',
-                    'purpose' => $transaction->purpose,
-                    'address' => $transaction->brgy . ', ' . $transaction->municipality,
-                    'course' => $transaction->user->course ?? 'N/A',
-                    'status' => $transaction->status,
-                    'created_at' => $transaction->created_at->toISOString(),
-                ];
-            });
-
-        return response()->json($transactions);
-    }
-
-    /**
      * Get performance summary (transactions by purpose)
      */
     public function getPerformanceSummary(Request $request)
@@ -319,13 +246,9 @@ class DashboardController extends Controller
             ->orderBy('value', 'desc')
             ->limit(5);
 
-        // Apply date range filter if provided
+        // Filter by date range if provided
         if ($startDate && $endDate) {
-            $query->whereBetween('created_at', [$startDate, $endDate]);
-        } else {
-            // Fallback to current month if no date range provided
-            $query->whereYear('created_at', date('Y'))
-                  ->whereMonth('created_at', date('n'));
+            $query->whereBetween('created_at', [$startDate . ' 00:00:00', $endDate . ' 23:59:59']);
         }
 
         $performanceData = $query->get()
@@ -338,6 +261,58 @@ class DashboardController extends Controller
 
         return response()->json([
             'performance' => $performanceData
+        ]);
+    }
+
+    /**
+     * Get all recent transactions with pagination for recent-transact page
+     */
+    public function getAllRecentTransactions(Request $request)
+    {
+        $perPage = $request->input('per_page', 20);
+        $startDate = $request->input('start_date');
+        $endDate = $request->input('end_date');
+        $search = $request->input('search');
+
+        $query = Transaction::with('user')
+            ->orderBy('created_at', 'desc');
+
+        // Filter by date range if provided
+        if ($startDate && $endDate) {
+            $query->whereBetween('created_at', [$startDate . ' 00:00:00', $endDate . ' 23:59:59']);
+        }
+
+        // Search functionality
+        if ($search) {
+            $query->where(function ($q) use ($search) {
+                $q->where('purpose', 'LIKE', "%{$search}%")
+                  ->orWhere('brgy', 'LIKE', "%{$search}%")
+                  ->orWhere('municipality', 'LIKE', "%{$search}%")
+                  ->orWhereHas('user', function ($userQuery) use ($search) {
+                      $userQuery->where('fname', 'LIKE', "%{$search}%")
+                                ->orWhere('lname', 'LIKE', "%{$search}%");
+                  });
+            });
+        }
+
+        $transactions = $query->paginate($perPage);
+
+        return response()->json([
+            'data' => $transactions->map(function ($transaction) {
+                return [
+                    'id' => $transaction->id,
+                    'date' => $transaction->created_at->format('M d, Y'),
+                    'student' => $transaction->user ? $transaction->user->fname . ' ' . $transaction->user->lname : 'N/A',
+                    'purpose' => $transaction->purpose,
+                    'address' => $transaction->brgy . ', ' . $transaction->municipality,
+                    'course' => $transaction->user->course ?? 'N/A',
+                    'status' => ucfirst($transaction->status),
+                ];
+            }),
+            'current_page' => $transactions->currentPage(),
+            'last_page' => $transactions->lastPage(),
+            'per_page' => $transactions->perPage(),
+            'total' => $transactions->total(),
         ]);
     }
 }
