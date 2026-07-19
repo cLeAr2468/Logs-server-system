@@ -271,6 +271,8 @@ class MasterlistController extends Controller
             // Process data rows
             $imported = 0;
             $skipped = 0;
+            $totalRows = 0;
+            $duplicateRecords = [];
             $errors = [];
 
             for ($i = 1; $i < count($csvData); $i++) {
@@ -280,6 +282,8 @@ class MasterlistController extends Controller
                 if (empty(array_filter($row))) {
                     continue;
                 }
+                
+                $totalRows++;
 
                 // Map row data to headers
                 $data = array_combine($headers, $row);
@@ -296,14 +300,21 @@ class MasterlistController extends Controller
                     continue;
                 }
 
-                // Check for duplicates
-                $existingEntry = Masterlist::where('student_id', $data['student_id'])
-                    ->orWhere('email', $data['email'])
-                    ->first();
+                // Check for duplicates by student_id
+                $existingEntry = Masterlist::where('student_id', $data['student_id'])->first();
 
                 if ($existingEntry) {
                     $skipped++;
-                    $errors[] = "Row " . ($i + 1) . ": Duplicate student_id or email";
+                    $duplicateRecords[] = $data['student_id'];
+                    continue;
+                }
+                
+                // Also check for duplicate email
+                $existingEmail = Masterlist::where('email', $data['email'])->first();
+                
+                if ($existingEmail) {
+                    $skipped++;
+                    $duplicateRecords[] = $data['email'];
                     continue;
                 }
 
@@ -327,11 +338,33 @@ class MasterlistController extends Controller
                 }
             }
 
+            // Prepare response message based on results
+            $message = '';
+            $success = true;
+            
+            if ($imported === 0 && $skipped === $totalRows) {
+                // All records are duplicates
+                $message = "All records are already in the masterlist. No new records imported.";
+                $success = false;
+            } elseif ($imported > 0 && $skipped > 0) {
+                // Some imported, some skipped
+                $message = "{$imported} new record(s) imported successfully. {$skipped} duplicate record(s) skipped.";
+            } elseif ($imported > 0 && $skipped === 0) {
+                // All imported
+                $message = "All {$imported} record(s) imported successfully!";
+            } else {
+                // None imported
+                $message = "No records were imported. Please check your CSV file.";
+                $success = false;
+            }
+
             return response()->json([
-                'success' => true,
-                'message' => "Import completed successfully! Imported: {$imported}, Skipped: {$skipped}",
+                'success' => $success,
+                'message' => $message,
                 'imported' => $imported,
                 'skipped' => $skipped,
+                'total' => $totalRows,
+                'duplicates' => count($duplicateRecords),
                 'errors' => $errors,
             ], 200);
 
