@@ -77,14 +77,23 @@ class ReportController extends Controller
     /**
      * Get monthly transaction trends (for line chart)
      */
-    public function getMonthlyTrends()
+    public function getMonthlyTrends(Request $request)
     {
-        // Get data for the last 12 months
+        // Get date range from request or default to last 12 months
+        $startDate = $request->input('start_date') 
+            ? Carbon::parse($request->input('start_date'))
+            : Carbon::now()->subMonths(11)->startOfMonth();
+            
+        $endDate = $request->input('end_date')
+            ? Carbon::parse($request->input('end_date'))
+            : Carbon::now()->endOfMonth();
+        
+        // Get data for the date range
         $monthlyData = Transaction::select(
                 DB::raw('DATE_FORMAT(created_at, "%b %Y") as month'),
                 DB::raw('count(*) as value')
             )
-            ->where('created_at', '>=', Carbon::now()->subMonths(11)->startOfMonth())
+            ->whereBetween('created_at', [$startDate, $endDate])
             ->groupBy(DB::raw('DATE_FORMAT(created_at, "%Y-%m")'))
             ->orderBy(DB::raw('DATE_FORMAT(created_at, "%Y-%m")'))
             ->get()
