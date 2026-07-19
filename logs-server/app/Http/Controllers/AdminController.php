@@ -162,8 +162,6 @@ class AdminController extends Controller
                             'middlename' => '',
                             'lastname' => 'Administrator',
                             'staff_id' => 'ADMIN',
-                            'position' => 'System Administrator',
-                            'contact_number' => '',
                             'status' => 'Active',
                         ],
                     ], 200);
@@ -191,10 +189,7 @@ class AdminController extends Controller
                     'middlename' => $staff->mname,
                     'lastname' => $staff->lname,
                     'full_name' => trim("{$staff->fname} {$staff->mname} {$staff->lname}"),
-                    'position' => $staff->position ?? 'Staff',
-                    'contact_number' => $staff->contact_number ?? '',
                     'status' => $staff->status ?? 'Active',
-                    'profile' => $staff->profile ?? '',
                 ],
             ], 200);
 
@@ -247,8 +242,6 @@ class AdminController extends Controller
                 'middlename' => 'nullable',
                 'lastname' => 'sometimes|required',
                 'email' => 'sometimes|required|email|unique:staff,email,' . $staff->id,
-                'position' => 'nullable',
-                'contact_number' => 'nullable',
                 'status' => 'nullable',
             ]);
 
@@ -281,14 +274,6 @@ class AdminController extends Controller
                 $staff->email = $request->email;
             }
             
-            if ($request->has('position')) {
-                $staff->position = $request->position;
-            }
-            
-            if ($request->has('contact_number')) {
-                $staff->contact_number = $request->contact_number;
-            }
-            
             if ($request->has('status')) {
                 $staff->status = $request->status;
             }
@@ -307,10 +292,7 @@ class AdminController extends Controller
                     'middlename' => $staff->mname,
                     'lastname' => $staff->lname,
                     'full_name' => trim("{$staff->fname} {$staff->mname} {$staff->lname}"),
-                    'position' => $staff->position ?? 'Staff',
-                    'contact_number' => $staff->contact_number ?? '',
                     'status' => $staff->status ?? 'Active',
-                    'profile' => $staff->profile ?? '',
                 ],
             ], 200);
 
@@ -323,6 +305,103 @@ class AdminController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to update profile',
+            ], 500);
+        }
+    }
+
+    /**
+     * Change staff password
+     */
+    public function changePassword(Request $request)
+    {
+        try {
+            // Check if it's default admin (cannot change password)
+            $authHeader = $request->header('Authorization');
+            if ($authHeader && strpos($authHeader, 'Bearer ') === 0) {
+                $token = substr($authHeader, 7);
+                $decoded = base64_decode($token);
+                if (strpos($decoded, 'admin@nwssu.edu.ph') === 0) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Default admin password cannot be changed',
+                    ], 403);
+                }
+            }
+
+            // Get authenticated staff
+            $staff = $request->user();
+            
+            if (!$staff) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized',
+                ], 401);
+            }
+
+            // Validate input
+            $validator = Validator::make($request->all(), [
+                'current_password' => 'required',
+                'new_password' => 'required|min:6',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Validation failed',
+                    'errors' => $validator->errors(),
+                ], 422);
+            }
+
+            // Verify current password
+            if (!Hash::check($request->current_password, $staff->password)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Current password is incorrect',
+                ], 400);
+            }
+
+            // Check if new password is different from current
+            if (Hash::check($request->new_password, $staff->password)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'New password must be different from current password',
+                ], 400);
+            }
+
+            // Update password using direct DB update to avoid double hashing
+            $hashedPassword = Hash::make($request->new_password);
+            
+            \Log::info('Changing staff password', [
+                'staff_id' => $staff->id,
+                'email' => $staff->email,
+            ]);
+            
+            \DB::table('staff')
+                ->where('id', $staff->id)
+                ->update([
+                    'password' => $hashedPassword,
+                    'updated_at' => now()
+                ]);
+
+            \Log::info('Staff password changed successfully', [
+                'staff_id' => $staff->id,
+                'email' => $staff->email,
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Password changed successfully',
+            ], 200);
+
+        } catch (\Exception $e) {
+            \Log::error('Change password exception', [
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to change password',
             ], 500);
         }
     }

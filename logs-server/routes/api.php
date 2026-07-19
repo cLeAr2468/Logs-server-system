@@ -90,6 +90,7 @@ Route::middleware('admin.auth')->group(function () {
     Route::post('/admin/logout', [AdminController::class, 'logout']);
     Route::get('/admin/profile', [AdminController::class, 'getProfile']);
     Route::put('/admin/profile', [AdminController::class, 'updateProfile']);
+    Route::post('/admin/change-password', [AdminController::class, 'changePassword']);
     
     // Staff management (admin/staff access)
     Route::get('/staff', [StaffController::class, 'index']);

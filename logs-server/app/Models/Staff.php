@@ -30,10 +30,7 @@ class Staff extends Authenticatable
         'lname',
         'email',
         'password',
-        'position',
-        'contact_number',
         'status',
-        'profile',
     ];
 
     /**
@@ -53,7 +50,8 @@ class Staff extends Authenticatable
      */
     protected $casts = [
         'email_verified_at' => 'datetime',
-        'password' => 'hashed',
+        // Removed 'password' => 'hashed' to prevent double hashing
+        // Password hashing is handled manually in controllers
     ];
 
     /**
