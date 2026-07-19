@@ -63,4 +63,12 @@ class Staff extends Authenticatable
     {
         return trim("{$this->fname} {$this->mname} {$this->lname}");
     }
+
+    /**
+     * Get the announcements created by this staff member.
+     */
+    public function announcements()
+    {
+        return $this->hasMany(Announcement::class);
+    }
 }

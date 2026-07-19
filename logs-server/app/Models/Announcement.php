@@ -10,7 +10,7 @@ class Announcement extends Model
     use HasFactory;
 
     protected $fillable = [
-        'user_id',
+        'staff_id',
         'title',
         'content',
         'cover_image',
@@ -25,11 +25,19 @@ class Announcement extends Model
     ];
 
     /**
-     * Get the user that created the announcement
+     * Get the staff that created the announcement
+     */
+    public function staff()
+    {
+        return $this->belongsTo(Staff::class);
+    }
+
+    /**
+     * Alias for backward compatibility
      */
     public function user()
     {
-        return $this->belongsTo(User::class);
+        return $this->staff();
     }
 
     /**

@@ -13,7 +13,7 @@ class AnnouncementController extends Controller
      */
     public function index(Request $request)
     {
-        $query = Announcement::with('user:id,fname,mname,lname,email')
+        $query = Announcement::with('staff:id,staff_id,fname,mname,lname,email')
             ->orderBy('created_at', 'desc');
 
         // Filter by status
@@ -44,7 +44,7 @@ class AnnouncementController extends Controller
      */
     public function show($id)
     {
-        $announcement = Announcement::with('user:id,fname,mname,lname,email')
+        $announcement = Announcement::with('staff:id,staff_id,fname,mname,lname,email')
             ->findOrFail($id);
 
         return response()->json([
@@ -57,51 +57,84 @@ class AnnouncementController extends Controller
      */
     public function store(Request $request)
     {
-        $request->validate([
-            'title' => 'required|string|max:255',
-            'content' => 'required|string',
-            'cover_image' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
-            'status' => 'required|in:draft,published,archive',
-        ]);
+        try {
+            $request->validate([
+                'title' => 'required|string|max:255',
+                'content' => 'required|string',
+                'cover_image' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
+                'status' => 'required|in:draft,published,archive',
+            ]);
 
-        // Get user_id - handle both staff and default admin
-        $userId = null;
-        if ($request->user()) {
-            // Staff user authenticated via Sanctum
-            $userId = $request->user()->id;
-        } else {
-            // Default admin - use a default user_id (assuming ID 1 is admin)
-            // Or set to null if user_id can be nullable
-            $userId = 1; // Default admin user_id
+            // Get staff_id - handle both staff and default admin
+            $staffId = null;
+            
+            if ($request->user()) {
+                // Staff user authenticated via Sanctum
+                $staffId = $request->user()->id;
+            } else {
+                // Default admin - get or create a system staff account
+                $systemStaff = \App\Models\Staff::firstOrCreate(
+                    ['email' => 'admin@nwssu.edu.ph'],
+                    [
+                        'staff_id' => 'ADMIN-000',
+                        'fname' => 'System',
+                        'mname' => '',
+                        'lname' => 'Administrator',
+                        'email' => 'admin@nwssu.edu.ph',
+                        'password' => \Hash::make('admin'),
+                        'status' => 'Active',
+                    ]
+                );
+                $staffId = $systemStaff->id;
+            }
+
+            $data = [
+                'staff_id' => $staffId,
+                'title' => $request->title,
+                'content' => $request->content,
+                'status' => $request->status,
+            ];
+
+            // Handle image upload
+            if ($request->hasFile('cover_image')) {
+                $path = $request->file('cover_image')->store('announcements', 'public');
+                $data['cover_image'] = $path;
+            }
+
+            // Set published_at if publishing
+            if ($request->status === 'published') {
+                $data['published_at'] = now();
+            }
+
+            $announcement = Announcement::create($data);
+            $announcement->load('staff:id,staff_id,fname,mname,lname,email');
+            $announcement->load('user:id,fname,mname,lname,email');
+
+            return response()->json([
+                'message' => $request->status === 'published' 
+                    ? 'Announcement published successfully' 
+                    : 'Announcement saved as draft',
+                'announcement' => $announcement
+            ], 201);
+            
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors' => $e->errors(),
+            ], 422);
+        } catch (\Exception $e) {
+            \Log::error('Create announcement error', [
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to create announcement',
+                'error' => $e->getMessage(),
+            ], 500);
         }
-
-        $data = [
-            'user_id' => $userId,
-            'title' => $request->title,
-            'content' => $request->content,
-            'status' => $request->status,
-        ];
-
-        // Handle image upload
-        if ($request->hasFile('cover_image')) {
-            $path = $request->file('cover_image')->store('announcements', 'public');
-            $data['cover_image'] = $path;
-        }
-
-        // Set published_at if publishing
-        if ($request->status === 'published') {
-            $data['published_at'] = now();
-        }
-
-        $announcement = Announcement::create($data);
-        $announcement->load('user:id,fname,mname,lname,email');
-
-        return response()->json([
-            'message' => $request->status === 'published' 
-                ? 'Announcement published successfully' 
-                : 'Announcement saved as draft',
-            'announcement' => $announcement
-        ], 201);
     }
 
     /**
@@ -148,7 +181,7 @@ class AnnouncementController extends Controller
         }
 
         $announcement->save();
-        $announcement->load('user:id,fname,mname,lname,email');
+        $announcement->load('staff:id,staff_id,fname,mname,lname,email');
 
         return response()->json([
             'message' => 'Announcement updated successfully',
