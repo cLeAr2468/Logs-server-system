@@ -81,12 +81,18 @@ class ReportController extends Controller
     {
         // Get date range from request or default to last 12 months
         $startDate = $request->input('start_date') 
-            ? Carbon::parse($request->input('start_date'))
+            ? Carbon::parse($request->input('start_date'))->startOfDay()
             : Carbon::now()->subMonths(11)->startOfMonth();
             
         $endDate = $request->input('end_date')
-            ? Carbon::parse($request->input('end_date'))
+            ? Carbon::parse($request->input('end_date'))->endOfDay()
             : Carbon::now()->endOfMonth();
+        
+        // Log for debugging
+        \Log::info('Monthly Trends Request', [
+            'start_date' => $startDate->toDateTimeString(),
+            'end_date' => $endDate->toDateTimeString(),
+        ]);
         
         // Get data for the date range
         $monthlyData = Transaction::select(
@@ -104,8 +110,19 @@ class ReportController extends Controller
                 ];
             });
         
+        // Log the result
+        \Log::info('Monthly Trends Result', [
+            'count' => $monthlyData->count(),
+            'data' => $monthlyData->toArray()
+        ]);
+        
         return response()->json([
-            'data' => $monthlyData
+            'data' => $monthlyData,
+            'debug' => [
+                'start_date' => $startDate->toDateString(),
+                'end_date' => $endDate->toDateString(),
+                'total_transactions' => Transaction::count(),
+            ]
         ]);
     }
     
