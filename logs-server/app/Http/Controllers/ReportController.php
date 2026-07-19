@@ -79,14 +79,21 @@ class ReportController extends Controller
      */
     public function getMonthlyTrends()
     {
+        // Get data for the last 12 months
         $monthlyData = Transaction::select(
-                DB::raw('DATE_FORMAT(created_at, "%b") as month'),
+                DB::raw('DATE_FORMAT(created_at, "%b %Y") as month'),
                 DB::raw('count(*) as value')
             )
-            ->whereYear('created_at', Carbon::now()->year)
-            ->groupBy('month')
-            ->orderBy(DB::raw('MONTH(created_at)'))
-            ->get();
+            ->where('created_at', '>=', Carbon::now()->subMonths(11)->startOfMonth())
+            ->groupBy(DB::raw('DATE_FORMAT(created_at, "%Y-%m")'))
+            ->orderBy(DB::raw('DATE_FORMAT(created_at, "%Y-%m")'))
+            ->get()
+            ->map(function($item) {
+                return [
+                    'month' => $item->month,
+                    'value' => $item->value
+                ];
+            });
         
         return response()->json([
             'data' => $monthlyData
