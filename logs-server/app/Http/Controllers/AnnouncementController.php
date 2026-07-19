@@ -108,7 +108,6 @@ class AnnouncementController extends Controller
 
             $announcement = Announcement::create($data);
             $announcement->load('staff:id,staff_id,fname,mname,lname,email');
-            $announcement->load('user:id,fname,mname,lname,email');
 
             return response()->json([
                 'message' => $request->status === 'published' 
