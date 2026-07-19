@@ -84,16 +84,21 @@ class StaffController extends Controller
                 ], 422);
             }
 
-            // Create the staff member with status automatically set to Active
-            $staff = Staff::create([
+            // Use DB insert to bypass auto-hashing, then manually hash
+            $staffId = \DB::table('staff')->insertGetId([
                 'staff_id' => $request->staff_id,
                 'fname' => $request->fname,
                 'mname' => $request->mname,
                 'lname' => $request->lname,
                 'email' => $request->email,
                 'password' => Hash::make($request->password),
-                'status' => 'Active', // Automatically set to Active
+                'status' => 'Active',
+                'created_at' => now(),
+                'updated_at' => now(),
             ]);
+
+            // Fetch the created staff
+            $staff = Staff::find($staffId);
 
             return response()->json([
                 'success' => true,
@@ -140,15 +145,27 @@ class StaffController extends Controller
                 ], 422);
             }
 
-            // Update staff data (including status if provided)
-            $updateData = $request->only(['staff_id', 'fname', 'mname', 'lname', 'email', 'status']);
-
-            // Only update password if provided
+            // Prepare update data
+            $updateData = [];
+            
+            if ($request->has('staff_id')) $updateData['staff_id'] = $request->staff_id;
+            if ($request->has('fname')) $updateData['fname'] = $request->fname;
+            if ($request->has('mname')) $updateData['mname'] = $request->mname;
+            if ($request->has('lname')) $updateData['lname'] = $request->lname;
+            if ($request->has('email')) $updateData['email'] = $request->email;
+            if ($request->has('status')) $updateData['status'] = $request->status;
+            
+            // Handle password separately to avoid double hashing
             if ($request->filled('password')) {
                 $updateData['password'] = Hash::make($request->password);
             }
-
-            $staff->update($updateData);
+            
+            // Update using DB to bypass auto-hashing
+            if (!empty($updateData)) {
+                $updateData['updated_at'] = now();
+                \DB::table('staff')->where('id', $id)->update($updateData);
+                $staff->refresh();
+            }
 
             return response()->json([
                 'success' => true,

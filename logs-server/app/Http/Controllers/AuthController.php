@@ -567,8 +567,29 @@ class AuthController extends Controller
         }
 
         // Update password
-        $user->password = Hash::make($request->password);
-        $user->save();
+        // For Staff model, we need to use updateQuietly to bypass auto-hashing
+        // since Staff model has 'password' => 'hashed' in casts
+        if ($isStaff) {
+            // Use DB update to bypass model events and auto-hashing
+            \DB::table('staff')
+                ->where('id', $user->id)
+                ->update([
+                    'password' => Hash::make($request->password),
+                    'updated_at' => now()
+                ]);
+            
+            // Refresh the model to get updated data
+            $user->refresh();
+            
+            \Log::info('Staff password reset', [
+                'email' => $request->email,
+                'staff_id' => $user->id
+            ]);
+        } else {
+            // For regular users, just hash and save normally
+            $user->password = Hash::make($request->password);
+            $user->save();
+        }
 
         // Mark token as used
         $resetToken->is_used = true;
