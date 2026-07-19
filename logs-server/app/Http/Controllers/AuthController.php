@@ -567,28 +567,51 @@ class AuthController extends Controller
         }
 
         // Update password
-        // For Staff model, we need to use updateQuietly to bypass auto-hashing
+        // For Staff model, we need to use DB update to bypass auto-hashing
         // since Staff model has 'password' => 'hashed' in casts
         if ($isStaff) {
+            $hashedPassword = Hash::make($request->password);
+            
+            // Log before update
+            \Log::info('Resetting staff password', [
+                'email' => $request->email,
+                'staff_id' => $user->id,
+                'old_password_hash' => substr($user->password, 0, 20) . '...',
+                'new_password_hash' => substr($hashedPassword, 0, 20) . '...'
+            ]);
+            
             // Use DB update to bypass model events and auto-hashing
-            \DB::table('staff')
+            $affectedRows = \DB::table('staff')
                 ->where('id', $user->id)
                 ->update([
-                    'password' => Hash::make($request->password),
+                    'password' => $hashedPassword,
                     'updated_at' => now()
                 ]);
             
             // Refresh the model to get updated data
             $user->refresh();
             
-            \Log::info('Staff password reset', [
+            // Log after update
+            \Log::info('Staff password reset successful', [
                 'email' => $request->email,
-                'staff_id' => $user->id
+                'staff_id' => $user->id,
+                'affected_rows' => $affectedRows,
+                'updated_password_hash' => substr($user->password, 0, 20) . '...'
             ]);
         } else {
             // For regular users, just hash and save normally
+            \Log::info('Resetting user password', [
+                'email' => $request->email,
+                'user_id' => $user->id
+            ]);
+            
             $user->password = Hash::make($request->password);
             $user->save();
+            
+            \Log::info('User password reset successful', [
+                'email' => $request->email,
+                'user_id' => $user->id
+            ]);
         }
 
         // Mark token as used
