@@ -89,6 +89,7 @@ Route::middleware('admin.auth')->group(function () {
     // Admin profile and logout
     Route::post('/admin/logout', [AdminController::class, 'logout']);
     Route::get('/admin/profile', [AdminController::class, 'getProfile']);
+    Route::put('/admin/profile', [AdminController::class, 'updateProfile']);
     
     // Staff management (admin/staff access)
     Route::get('/staff', [StaffController::class, 'index']);

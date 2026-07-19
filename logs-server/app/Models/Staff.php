@@ -30,7 +30,10 @@ class Staff extends Authenticatable
         'lname',
         'email',
         'password',
+        'position',
+        'contact_number',
         'status',
+        'profile',
     ];
 
     /**
