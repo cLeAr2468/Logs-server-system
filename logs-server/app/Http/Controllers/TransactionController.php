@@ -45,9 +45,8 @@ class TransactionController extends Controller
     {
         $request->validate([
             'purpose' => 'required|string',
-            'street_house_no' => 'required|string',
-            'brgy' => 'required|string',
-            'municipality' => 'required|string',
+            'barangay' => 'required|string',
+            'city' => 'required|string',
             'province' => 'required|string',
             'schedule_date' => 'required|date|after_or_equal:today',
             'time_slot' => 'required|string',
@@ -82,9 +81,8 @@ class TransactionController extends Controller
         $transaction = Transaction::create([
             'user_id' => $request->user()->id,
             'purpose' => $request->purpose,
-            'street_house_no' => $request->street_house_no,
-            'brgy' => $request->brgy,
-            'municipality' => $request->municipality,
+            'brgy' => $request->barangay,
+            'municipality' => $request->city,
             'province' => $request->province,
             'schedule_date' => $request->schedule_date,
             'time_slot' => $request->time_slot,
@@ -126,7 +124,6 @@ class TransactionController extends Controller
     {
         $request->validate([
             'purpose' => 'sometimes|required|string',
-            'street_house_no' => 'sometimes|required|string',
             'brgy' => 'sometimes|required|string',
             'municipality' => 'sometimes|required|string',
             'province' => 'sometimes|required|string',
@@ -193,9 +190,6 @@ class TransactionController extends Controller
         // Update transaction
         if ($request->has('purpose')) {
             $transaction->purpose = $request->purpose;
-        }
-        if ($request->has('street_house_no')) {
-            $transaction->street_house_no = $request->street_house_no;
         }
         if ($request->has('brgy')) {
             $transaction->brgy = $request->brgy;
@@ -428,9 +422,12 @@ class TransactionController extends Controller
                 'fname' => $user->fname,
                 'mname' => $user->mname,
                 'lname' => $user->lname,
+                'email' => $user->email,
+                'barangay' => $user->barangay,
+                'municipality' => $user->municipality,
+                'province' => $user->province,
                 'course' => $user->course,
                 'year_level' => $user->year_level,
-                'email' => $user->email,
             ]
         ], 200);
     }
@@ -443,7 +440,6 @@ class TransactionController extends Controller
         $request->validate([
             'student_id' => 'required|string|exists:users,student_id',
             'purpose' => 'required|string',
-            'street_house_no' => 'required|string',
             'brgy' => 'required|string',
             'municipality' => 'required|string',
             'province' => 'required|string',
@@ -488,7 +484,6 @@ class TransactionController extends Controller
         $transaction = Transaction::create([
             'user_id' => $user->id,
             'purpose' => $request->purpose,
-            'street_house_no' => $request->street_house_no,
             'brgy' => $request->brgy,
             'municipality' => $request->municipality,
             'province' => $request->province,

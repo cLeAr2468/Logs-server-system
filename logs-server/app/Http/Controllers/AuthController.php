@@ -45,6 +45,9 @@ class AuthController extends Controller
             'mname' => 'nullable',
             'lname' => 'required',
             'email' => 'required|email|unique:users',
+            'barangay' => 'required|string|max:255',
+            'municipality' => 'required|string|max:255',
+            'province' => 'required|string|max:255',
             'course' => 'required',
             'year_level' => 'required',
             'password' => 'required|min:6',
@@ -69,6 +72,9 @@ class AuthController extends Controller
             'mname' => $request->mname,
             'lname' => $request->lname,
             'email' => $request->email,
+            'barangay' => $request->barangay,
+            'municipality' => $request->municipality,
+            'province' => $request->province,
             'course' => $request->course,
             'year_level' => $request->year_level,
             'status' => 'Active', // Automatically set status to Active
@@ -84,6 +90,9 @@ class AuthController extends Controller
                 'mname' => $user->mname,
                 'lname' => $user->lname,
                 'email' => $user->email,
+                'barangay' => $user->barangay,
+                'municipality' => $user->municipality,
+                'province' => $user->province,
                 'course' => $user->course,
                 'year_level' => $user->year_level,
                 'status' => $user->status,
@@ -121,6 +130,9 @@ class AuthController extends Controller
                 'lname' => $user->lname,
                 'full_name' => $user->full_name,
                 'email' => $user->email,
+                'barangay' => $user->barangay ?? '',
+                'municipality' => $user->municipality ?? '',
+                'province' => $user->province ?? '',
                 'course' => $user->course,
                 'year_level' => $user->year_level,
                 'status' => $user->status ?? 'Active',
@@ -222,6 +234,9 @@ class AuthController extends Controller
                 'middlename' => $user->mname,
                 'lastname' => $user->lname,
                 'email' => $user->email,
+                'barangay' => $user->barangay ?? '',
+                'municipality' => $user->municipality ?? '',
+                'province' => $user->province ?? '',
                 'course' => $user->course,
                 'year' => $user->year_level,
                 'address' => $user->address ?? '',
@@ -242,6 +257,9 @@ class AuthController extends Controller
             'middlename' => 'nullable',
             'lastname' => 'sometimes|required',
             'email' => 'sometimes|required|email|unique:users,email,' . $user->id,
+            'barangay' => 'nullable|string|max:255',
+            'municipality' => 'nullable|string|max:255',
+            'province' => 'nullable|string|max:255',
             'course' => 'sometimes|required',
             'year' => 'sometimes|required',
             'address' => 'nullable',
@@ -267,6 +285,18 @@ class AuthController extends Controller
         
         if ($request->has('email')) {
             $user->email = $request->email;
+        }
+        
+        if ($request->has('barangay')) {
+            $user->barangay = $request->barangay;
+        }
+        
+        if ($request->has('municipality')) {
+            $user->municipality = $request->municipality;
+        }
+        
+        if ($request->has('province')) {
+            $user->province = $request->province;
         }
         
         if ($request->has('course')) {
@@ -296,6 +326,9 @@ class AuthController extends Controller
                 'middlename' => $user->mname,
                 'lastname' => $user->lname,
                 'email' => $user->email,
+                'barangay' => $user->barangay ?? '',
+                'municipality' => $user->municipality ?? '',
+                'province' => $user->province ?? '',
                 'course' => $user->course,
                 'year' => $user->year_level,
                 'address' => $user->address ?? '',
