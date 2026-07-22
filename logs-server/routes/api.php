@@ -12,6 +12,7 @@ use App\Http\Controllers\StaffController;
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\MasterlistController;
 use App\Http\Controllers\ReportController;
+use App\Http\Controllers\PurposeController;
 
 // Health check endpoint for deployment monitoring
 Route::get('/health', function () {
@@ -149,3 +150,15 @@ Route::middleware('admin.auth')->group(function () {
 
 // PUBLIC ANNOUNCEMENT ROUTES (No authentication required)
 Route::get('/public/announcements', [AnnouncementController::class, 'getPublished']);
+
+// PURPOSE ROUTES
+// Public route for purposes (for dropdowns in user forms)
+Route::get('/purposes', [PurposeController::class, 'index']);
+
+// Admin routes for purpose management
+Route::middleware('admin.auth')->group(function () {
+    Route::post('/purposes', [PurposeController::class, 'store']);
+    Route::get('/purposes/{id}', [PurposeController::class, 'show']);
+    Route::put('/purposes/{id}', [PurposeController::class, 'update']);
+    Route::delete('/purposes/{id}', [PurposeController::class, 'destroy']);
+});
