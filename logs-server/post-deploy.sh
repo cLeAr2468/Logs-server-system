@@ -5,13 +5,21 @@
 
 echo "🚀 Starting post-deployment setup..."
 
+# Ensure storage directories exist
+echo "📁 Creating storage directories..."
+mkdir -p storage/app/public/announcements
+mkdir -p storage/framework/{sessions,views,cache}
+mkdir -p storage/logs
+chmod -R 775 storage
+chmod -R 775 bootstrap/cache
+
 # Run migrations
 echo "📊 Running database migrations..."
 php artisan migrate --force
 
 # Create storage symlink
 echo "🔗 Creating storage link..."
-php artisan storage:link
+php artisan storage:link --force
 
 # Cache configuration
 echo "⚡ Caching configuration..."

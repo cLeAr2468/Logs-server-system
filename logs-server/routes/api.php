@@ -42,6 +42,9 @@ Route::post('/staff/register', [StaffController::class, 'store']);
 // ADMIN LOGIN ROUTE (includes default admin and staff login)
 Route::post('/admin/login', [AdminController::class, 'login']);
 
+// ADMIN VERIFY TOKEN ROUTE (for protected routes)
+Route::middleware('admin.auth')->get('/admin/verify', [AdminController::class, 'verify']);
+
 
 // PASSWORD RESET ROUTES
 Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);

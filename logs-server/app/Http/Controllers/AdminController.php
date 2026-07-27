@@ -10,6 +10,62 @@ use Illuminate\Support\Facades\Validator;
 class AdminController extends Controller
 {
     /**
+     * Verify admin/staff token
+     */
+    public function verify(Request $request)
+    {
+        try {
+            // Check if token is for default admin
+            $authHeader = $request->header('Authorization');
+            if ($authHeader && strpos($authHeader, 'Bearer ') === 0) {
+                $token = substr($authHeader, 7);
+                
+                // Check if it's the default admin token
+                $decoded = base64_decode($token);
+                if (strpos($decoded, 'admin@nwssu.edu.ph') === 0) {
+                    return response()->json([
+                        'success' => true,
+                        'authenticated' => true,
+                        'user' => [
+                            'id' => 0,
+                            'email' => 'admin@nwssu.edu.ph',
+                            'role' => 'admin',
+                        ],
+                    ], 200);
+                }
+            }
+
+            // Otherwise, check if it's a valid staff token
+            $staff = $request->user();
+            
+            if (!$staff) {
+                return response()->json([
+                    'success' => false,
+                    'authenticated' => false,
+                    'message' => 'Invalid or expired token',
+                ], 401);
+            }
+
+            return response()->json([
+                'success' => true,
+                'authenticated' => true,
+                'user' => [
+                    'id' => $staff->id,
+                    'email' => $staff->email,
+                    'role' => 'staff',
+                ],
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'authenticated' => false,
+                'message' => 'Token verification failed',
+            ], 401);
+        }
+    }
+
+    /**
      * Admin/Staff Login
      * Supports:
      * 1. Default admin credentials (admin@nwssu.edu.ph / admin)

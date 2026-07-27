@@ -24,6 +24,26 @@ class Announcement extends Model
         'updated_at' => 'datetime',
     ];
 
+    protected $appends = ['cover_image_url'];
+
+    /**
+     * Get the full URL for the cover image
+     */
+    public function getCoverImageUrlAttribute()
+    {
+        if (!$this->cover_image) {
+            return null;
+        }
+        
+        // If it's already a full URL (external storage), return as-is
+        if (filter_var($this->cover_image, FILTER_VALIDATE_URL)) {
+            return $this->cover_image;
+        }
+        
+        // Otherwise, prepend the APP_URL + /storage/ for local files
+        return rtrim(config('app.url'), '/') . '/storage/' . $this->cover_image;
+    }
+
     /**
      * Get the staff that created the announcement
      */
