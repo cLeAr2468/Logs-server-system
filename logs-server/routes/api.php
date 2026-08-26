@@ -143,7 +143,6 @@ Route::middleware('admin.auth')->group(function () {
     Route::get('/reports/export', [ReportController::class, 'exportReport']);
     Route::get('/reports/recent', [ReportController::class, 'getRecentReports']);
     Route::get('/reports/download/{id}', [ReportController::class, 'downloadReport']);
-    Route::delete('/reports/clear', [ReportController::class, 'clearAllReports']);
     
     // Admin Dashboard (admin/staff access)
     Route::get('/admin/dashboard/statistics', [DashboardController::class, 'getAdminStatistics']);
