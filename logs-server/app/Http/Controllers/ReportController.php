@@ -342,7 +342,7 @@ class ReportController extends Controller
         }
         
         $sheet->mergeCells("A{$row}:I{$row}");
-        $sheet->setCellValue("A{$row}", 'Generated: ' . date('F Y'));
+        $sheet->setCellValue("A{$row}", 'Generated: ' . date('F d, Y h:i A'));
         $sheet->getStyle("A{$row}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
         $row++;
         
@@ -521,7 +521,7 @@ class ReportController extends Controller
         if ($startDate && $endDate) {
             fputcsv($output, ['Period: ' . date('F d, Y', strtotime($startDate)) . ' to ' . date('F d, Y', strtotime($endDate))]);
         }
-        fputcsv($output, ['Generated: ' . date('F Y')]);
+        fputcsv($output, ['Generated: ' . date('F d, Y h:i A')]);
         fputcsv($output, []); // Empty line
         
         // Add summary section if requested
@@ -679,59 +679,6 @@ class ReportController extends Controller
         
         if ($endDate) {
             $query->whereDate('created_at', '<=', $endDate);
-        }
-        
-        $feedbacks = $query->get();
-        
-        $totalFeedback = $feedbacks->count();
-        $averageRating = $feedbacks->avg('rating') ?? 0;
-        
-        $ratingDistribution = [
-            5 => $feedbacks->where('rating', 5)->count(),
-            4 => $feedbacks->where('rating', 4)->count(),
-            3 => $feedbacks->where('rating', 3)->count(),
-            2 => $feedbacks->where('rating', 2)->count(),
-            1 => $feedbacks->where('rating', 1)->count(),
-        ];
-        
-        return [
-            'total_feedback' => $totalFeedback,
-            'average_rating' => $averageRating,
-            'rating_distribution' => $ratingDistribution,
-        ];
-    }
-
-    /**
-     * Clear all recent reports
-     */
-    public function clearAllReports()
-    {
-        try {
-            // Get all reports
-            $reports = ExportedReport::all();
-            
-            // Delete files from storage
-            foreach ($reports as $report) {
-                if ($report->file_path && Storage::disk('public')->exists($report->file_path)) {
-                    Storage::disk('public')->delete($report->file_path);
-                }
-            }
-            
-            // Delete all records from database
-            ExportedReport::truncate();
-            
-            return response()->json([
-                'message' => 'All reports cleared successfully'
-            ]);
-        } catch (\Exception $e) {
-            \Log::error('Error clearing reports: ' . $e->getMessage());
-            return response()->json([
-                'message' => 'Failed to clear reports',
-                'error' => $e->getMessage()
-            ], 500);
-        }
-    }
-}ery->whereDate('created_at', '<=', $endDate);
         }
         
         $feedbacks = $query->get();
@@ -937,36 +884,5 @@ class ReportController extends Controller
         ];
         
         return response()->make($fileContent, 200, $headers);
-    }
-
-    /**
-     * Clear all recent reports
-     */
-    public function clearAllReports()
-    {
-        try {
-            // Get all reports
-            $reports = ExportedReport::all();
-            
-            // Delete files from storage
-            foreach ($reports as $report) {
-                if ($report->file_path && Storage::disk('public')->exists($report->file_path)) {
-                    Storage::disk('public')->delete($report->file_path);
-                }
-            }
-            
-            // Delete all records from database
-            ExportedReport::truncate();
-            
-            return response()->json([
-                'message' => 'All reports cleared successfully'
-            ]);
-        } catch (\Exception $e) {
-            \Log::error('Error clearing reports: ' . $e->getMessage());
-            return response()->json([
-                'message' => 'Failed to clear reports',
-                'error' => $e->getMessage()
-            ], 500);
-        }
     }
 }

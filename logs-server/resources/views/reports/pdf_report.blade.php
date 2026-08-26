@@ -200,8 +200,7 @@
         <div class="campus-name">Resilience • Integrity • Service • Excellence</div>
     </div>
     
-    <!-- Document Info -->
-    <!-- Removed Doc. Code, Revision No., and Effective Date section -->
+
     
     <!-- Report Title -->
     <div class="report-title">{{ $reportTitle }}</div>
