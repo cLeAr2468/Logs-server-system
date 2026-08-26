@@ -9,6 +9,12 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Carbon\Carbon;
+use Barryvdh\DomPDF\Facade\Pdf;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+use PhpOffice\PhpSpreadsheet\Style\Fill;
+use PhpOffice\PhpSpreadsheet\Style\Border;
+use PhpOffice\PhpSpreadsheet\Style\Alignment;
 
 class ReportController extends Controller
 {
@@ -183,11 +189,23 @@ class ReportController extends Controller
         // Save report to database
         $staffId = $request->user() ? $request->user()->id : null;
         
-        // Generate file content
-        $fileContent = $this->generateReportContent($transactions, $statistics, $feedbackData, $includeSummary, $includeDetails, $includeFeedback, $reportType, $startDate, $endDate);
+        // Generate file based on format
+        $filePath = 'reports/' . $filename;
+        $contentType = 'text/csv';
+        
+        if ($format === 'pdf') {
+            $fileContent = $this->generatePDFReport($transactions, $statistics, $feedbackData, $includeSummary, $includeDetails, $includeFeedback, $reportType, $startDate, $endDate);
+            $contentType = 'application/pdf';
+        } elseif ($format === 'excel') {
+            $fileContent = $this->generateExcelReport($transactions, $statistics, $feedbackData, $includeSummary, $includeDetails, $includeFeedback, $reportType, $startDate, $endDate);
+            $contentType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+            $filename = str_replace('.excel', '.xlsx', $filename);
+            $filePath = 'reports/' . $filename;
+        } else {
+            $fileContent = $this->generateCSVReport($transactions, $statistics, $feedbackData, $includeSummary, $includeDetails, $includeFeedback, $reportType, $startDate, $endDate);
+        }
         
         // Store file
-        $filePath = 'reports/' . $filename;
         Storage::disk('public')->put($filePath, $fileContent);
         
         // Get file size
@@ -199,7 +217,7 @@ class ReportController extends Controller
             'staff_id' => $staffId,
             'report_name' => $reportType . ' - ' . ($dateRange),
             'report_type' => $reportType,
-            'file_format' => strtoupper($format),
+            'file_format' => strtoupper($format === 'excel' ? 'XLSX' : $format),
             'file_path' => $filePath,
             'file_size' => $fileSizeFormatted,
             'start_date' => $startDate,
@@ -211,7 +229,7 @@ class ReportController extends Controller
         
         // Return file for download
         $headers = [
-            'Content-Type' => 'text/csv',
+            'Content-Type' => $contentType,
             'Content-Disposition' => 'attachment; filename="' . $filename . '"',
         ];
         
@@ -219,9 +237,283 @@ class ReportController extends Controller
     }
     
     /**
-     * Generate report content as CSV
+     * Generate PDF report
      */
-    private function generateReportContent($transactions, $statistics, $feedbackData, $includeSummary, $includeDetails, $includeFeedback, $reportType, $startDate, $endDate)
+    private function generatePDFReport($transactions, $statistics, $feedbackData, $includeSummary, $includeDetails, $includeFeedback, $reportType, $startDate, $endDate)
+    {
+        try {
+            // Prepare data for the view
+            $data = [
+                'reportTitle' => $reportType,
+                'docCode' => 'GTC-QF-07',
+                'revisionNo' => '03',
+                'effectiveDate' => 'March 21, 2023',
+                'startDate' => $startDate,
+                'endDate' => $endDate,
+                'includeSummary' => $includeSummary,
+                'includeDetails' => $includeDetails,
+                'includeFeedback' => $includeFeedback,
+                'statistics' => $statistics,
+                'transactions' => $transactions,
+                'feedbackData' => $feedbackData,
+            ];
+            
+            // Add intro text
+            if ($reportType === 'Monthly Transaction Summary' || $reportType === 'Student Affairs Services Summary') {
+                $data['introText'] = 'The Student Affairs and Services (SAS) Office continuously provided frontline services to students by facilitating various student-related documents, requests, and scholarship requirements. These services aimed to ensure the efficient, timely, and organized delivery of assistance to students.';
+                
+                $data['servicesList'] = [
+                    'Conducted student ID validation and assisted students with ID-related concerns.',
+                    'Processed and released Certificates of Good Moral Character.',
+                    'Processed and released Student Clearance Forms.',
+                    'Processed and released Affidavits of Loss for School IDs.',
+                    'Distributed and released Student Handbooks.',
+                    'Processed and issued various certifications and other requested student documents.',
+                    'Received, checked, organized, and gathered documentary requirements for scholarship applications and grants.',
+                    'Assisted students in completing and complying with the necessary requirements for their scholarship applications and other student-related concerns.'
+                ];
+                
+                $data['conclusionText'] = 'Through these frontline services, the SAS Office was able to provide direct assistance to students, facilitate the processing and release of important documents, and ensure the proper collection and organization of scholarship requirements. The continuous delivery of these services contributed to the efficient and effective implementation of the office\'s programs and services for the student community.';
+            }
+            
+            // Add signature information
+            $data['preparedBy'] = 'HAZEL V. FRANCISCO';
+            $data['preparedByTitle'] = 'SAS Aide';
+            $data['notedBy'] = 'PERLA S. MANLOLO, MAT';
+            $data['notedByTitle'] = 'Head, Student Affairs and Services';
+            
+            // Generate PDF with options to handle potential issues
+            $pdf = Pdf::loadView('reports.pdf_report', $data);
+            $pdf->setPaper('letter', 'portrait');
+            $pdf->setOption('isHtml5ParserEnabled', true);
+            $pdf->setOption('isRemoteEnabled', true);
+            
+            return $pdf->output();
+        } catch (\Exception $e) {
+            \Log::error('PDF Generation Error: ' . $e->getMessage());
+            \Log::error('Stack trace: ' . $e->getTraceAsString());
+            
+            // Return a simple error PDF or throw the exception
+            throw new \Exception('Failed to generate PDF: ' . $e->getMessage());
+        }
+    }
+    
+    /**
+     * Generate Excel report with tables
+     */
+    private function generateExcelReport($transactions, $statistics, $feedbackData, $includeSummary, $includeDetails, $includeFeedback, $reportType, $startDate, $endDate)
+    {
+        $spreadsheet = new Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        
+        // Set sheet name
+        $sheet->setTitle('Transaction Report');
+        
+        $row = 1;
+        
+        // Header
+        $sheet->mergeCells("A{$row}:I{$row}");
+        $sheet->setCellValue("A{$row}", 'NORTHWEST SAMAR STATE UNIVERSITY');
+        $sheet->getStyle("A{$row}")->getFont()->setBold(true)->setSize(14);
+        $sheet->getStyle("A{$row}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+        $row++;
+        
+        $sheet->mergeCells("A{$row}:I{$row}");
+        $sheet->setCellValue("A{$row}", 'San Jorge Campus');
+        $sheet->getStyle("A{$row}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+        $row++;
+        
+        $sheet->mergeCells("A{$row}:I{$row}");
+        $sheet->setCellValue("A{$row}", 'Resilience • Integrity • Service • Excellence');
+        $sheet->getStyle("A{$row}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+        $row++;
+        
+        $row++; // Empty row
+        
+        // Report Title
+        $sheet->mergeCells("A{$row}:I{$row}");
+        $sheet->setCellValue("A{$row}", $reportType);
+        $sheet->getStyle("A{$row}")->getFont()->setBold(true)->setSize(12);
+        $sheet->getStyle("A{$row}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+        $row++;
+        
+        if ($startDate && $endDate) {
+            $sheet->mergeCells("A{$row}:I{$row}");
+            $sheet->setCellValue("A{$row}", 'Period: ' . date('F d, Y', strtotime($startDate)) . ' to ' . date('F d, Y', strtotime($endDate)));
+            $sheet->getStyle("A{$row}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+            $row++;
+        }
+        
+        $sheet->mergeCells("A{$row}:I{$row}");
+        $sheet->setCellValue("A{$row}", 'Generated: ' . date('F d, Y h:i A'));
+        $sheet->getStyle("A{$row}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+        $row++;
+        
+        $row++; // Empty row
+        
+        // Summary Section
+        if ($includeSummary && $statistics) {
+            $sheet->mergeCells("A{$row}:I{$row}");
+            $sheet->setCellValue("A{$row}", 'SUMMARY (STATUS OVERVIEW)');
+            $sheet->getStyle("A{$row}")->getFont()->setBold(true);
+            $sheet->getStyle("A{$row}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('15592F');
+            $sheet->getStyle("A{$row}")->getFont()->getColor()->setRGB('FFFFFF');
+            $row++;
+            
+            $row++; // Empty row
+            
+            $sheet->setCellValue("A{$row}", 'Total Transactions:');
+            $sheet->setCellValue("B{$row}", number_format($statistics['total']));
+            $sheet->getStyle("A{$row}")->getFont()->setBold(true);
+            $row++;
+            
+            $row++; // Empty row
+            
+            // Status table
+            $sheet->setCellValue("A{$row}", 'Status');
+            $sheet->setCellValue("B{$row}", 'Count');
+            $sheet->setCellValue("C{$row}", 'Percentage');
+            $headerStyle = $sheet->getStyle("A{$row}:C{$row}");
+            $headerStyle->getFont()->setBold(true);
+            $headerStyle->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('15592F');
+            $headerStyle->getFont()->getColor()->setRGB('FFFFFF');
+            $row++;
+            
+            foreach ($statistics['by_status'] as $status => $count) {
+                $percentage = $statistics['total'] > 0 ? round(($count / $statistics['total']) * 100, 1) : 0;
+                $sheet->setCellValue("A{$row}", ucfirst($status));
+                $sheet->setCellValue("B{$row}", $count);
+                $sheet->setCellValue("C{$row}", $percentage . '%');
+                $row++;
+            }
+            
+            $row++; // Empty row
+            
+            // Top Purposes
+            if (isset($statistics['by_purpose']) && count($statistics['by_purpose']) > 0) {
+                $sheet->mergeCells("A{$row}:I{$row}");
+                $sheet->setCellValue("A{$row}", 'TOP REQUESTED PURPOSES');
+                $sheet->getStyle("A{$row}")->getFont()->setBold(true);
+                $row++;
+                
+                $sheet->setCellValue("A{$row}", 'Purpose');
+                $sheet->setCellValue("B{$row}", 'Count');
+                $headerStyle = $sheet->getStyle("A{$row}:B{$row}");
+                $headerStyle->getFont()->setBold(true);
+                $headerStyle->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('15592F');
+                $headerStyle->getFont()->getColor()->setRGB('FFFFFF');
+                $row++;
+                
+                foreach ($statistics['by_purpose'] as $purpose => $count) {
+                    $sheet->setCellValue("A{$row}", $purpose);
+                    $sheet->setCellValue("B{$row}", $count);
+                    $row++;
+                }
+                
+                $row++; // Empty row
+            }
+        }
+        
+        // Detailed Transactions
+        if ($includeDetails && $transactions->count() > 0) {
+            $sheet->mergeCells("A{$row}:I{$row}");
+            $sheet->setCellValue("A{$row}", 'DETAILED TRANSACTIONS');
+            $sheet->getStyle("A{$row}")->getFont()->setBold(true);
+            $sheet->getStyle("A{$row}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('15592F');
+            $sheet->getStyle("A{$row}")->getFont()->getColor()->setRGB('FFFFFF');
+            $row++;
+            
+            $row++; // Empty row
+            
+            // Headers
+            $headers = ['Date', 'Student ID', 'Student Name', 'Course', 'Year', 'Purpose', 'Schedule', 'Time', 'Status'];
+            $col = 'A';
+            foreach ($headers as $header) {
+                $sheet->setCellValue("{$col}{$row}", $header);
+                $col++;
+            }
+            $headerStyle = $sheet->getStyle("A{$row}:I{$row}");
+            $headerStyle->getFont()->setBold(true);
+            $headerStyle->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('15592F');
+            $headerStyle->getFont()->getColor()->setRGB('FFFFFF');
+            $row++;
+            
+            // Data rows
+            foreach ($transactions as $transaction) {
+                $studentName = trim(($transaction->user->fname ?? '') . ' ' . ($transaction->user->mname ?? '') . ' ' . ($transaction->user->lname ?? '')) ?: 'N/A';
+                
+                $sheet->setCellValue("A{$row}", date('Y-m-d', strtotime($transaction->created_at)));
+                $sheet->setCellValue("B{$row}", $transaction->user->student_id ?? 'N/A');
+                $sheet->setCellValue("C{$row}", $studentName);
+                $sheet->setCellValue("D{$row}", $transaction->user->course ?? 'N/A');
+                $sheet->setCellValue("E{$row}", $transaction->user->year_level ?? 'N/A');
+                $sheet->setCellValue("F{$row}", $transaction->purpose);
+                $sheet->setCellValue("G{$row}", $transaction->schedule_date ?? 'N/A');
+                $sheet->setCellValue("H{$row}", $transaction->time_slot ?? 'N/A');
+                $sheet->setCellValue("I{$row}", ucfirst($transaction->status));
+                $row++;
+            }
+            
+            $row++; // Empty row
+        }
+        
+        // Feedback Summary
+        if ($includeFeedback && $feedbackData) {
+            $sheet->mergeCells("A{$row}:I{$row}");
+            $sheet->setCellValue("A{$row}", 'FEEDBACK SUMMARY');
+            $sheet->getStyle("A{$row}")->getFont()->setBold(true);
+            $sheet->getStyle("A{$row}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('15592F');
+            $sheet->getStyle("A{$row}")->getFont()->getColor()->setRGB('FFFFFF');
+            $row++;
+            
+            $row++; // Empty row
+            
+            $sheet->setCellValue("A{$row}", 'Total Feedback Received:');
+            $sheet->setCellValue("B{$row}", number_format($feedbackData['total_feedback']));
+            $sheet->getStyle("A{$row}")->getFont()->setBold(true);
+            $row++;
+            
+            $sheet->setCellValue("A{$row}", 'Average Rating:');
+            $sheet->setCellValue("B{$row}", round($feedbackData['average_rating'], 2) . ' / 5.0');
+            $sheet->getStyle("A{$row}")->getFont()->setBold(true);
+            $row++;
+            
+            $row++; // Empty row
+            
+            $sheet->setCellValue("A{$row}", 'Rating');
+            $sheet->setCellValue("B{$row}", 'Count');
+            $headerStyle = $sheet->getStyle("A{$row}:B{$row}");
+            $headerStyle->getFont()->setBold(true);
+            $headerStyle->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('15592F');
+            $headerStyle->getFont()->getColor()->setRGB('FFFFFF');
+            $row++;
+            
+            foreach ($feedbackData['rating_distribution'] as $rating => $count) {
+                $sheet->setCellValue("A{$row}", $rating . ' stars');
+                $sheet->setCellValue("B{$row}", $count);
+                $row++;
+            }
+        }
+        
+        // Auto-size columns
+        foreach (range('A', 'I') as $col) {
+            $sheet->getColumnDimension($col)->setAutoSize(true);
+        }
+        
+        // Create Excel file
+        $writer = new Xlsx($spreadsheet);
+        $tempFile = tempnam(sys_get_temp_dir(), 'excel');
+        $writer->save($tempFile);
+        $content = file_get_contents($tempFile);
+        unlink($tempFile);
+        
+        return $content;
+    }
+    
+    /**
+     * Generate CSV report content
+     */
+    private function generateCSVReport($transactions, $statistics, $feedbackData, $includeSummary, $includeDetails, $includeFeedback, $reportType, $startDate, $endDate)
     {
         $output = fopen('php://temp', 'r+');
         
@@ -579,8 +871,18 @@ class ReportController extends Controller
         $fileContent = Storage::disk('public')->get($report->file_path);
         $filename = basename($report->file_path);
         
+        // Determine content type based on file extension
+        $extension = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+        $contentType = 'text/csv';
+        
+        if ($extension === 'pdf') {
+            $contentType = 'application/pdf';
+        } elseif (in_array($extension, ['xlsx', 'xls'])) {
+            $contentType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+        }
+        
         $headers = [
-            'Content-Type' => 'text/csv',
+            'Content-Type' => $contentType,
             'Content-Disposition' => 'attachment; filename="' . $filename . '"',
         ];
         
