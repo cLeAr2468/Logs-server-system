@@ -34,13 +34,6 @@
             margin: 3px 0;
         }
         
-        .doc-info {
-            text-align: right;
-            font-size: 9px;
-            color: #666;
-            margin-bottom: 15px;
-        }
-        
         .report-title {
             text-align: center;
             font-size: 13px;
@@ -200,15 +193,6 @@
         <div class="campus-name">Resilience • Integrity • Service • Excellence</div>
     </div>
     
-    <!-- Document Info -->
-    @if(isset($docCode))
-    <div class="doc-info">
-        <div>Doc. Code: {{ $docCode }}</div>
-        <div>Revision No.: {{ $revisionNo ?? '01' }}</div>
-        <div>Effective Date: {{ $effectiveDate ?? date('F d, Y') }}</div>
-    </div>
-    @endif
-    
     <!-- Report Title -->
     <div class="report-title">{{ $reportTitle }}</div>
     
@@ -219,7 +203,7 @@
     @endif
     
     <div class="report-subtitle">
-        Generated: {{ date('F d, Y h:i A') }}
+        Generated: {{ $generatedAt ?? date('F d, Y h:i A') }}
     </div>
     
     <!-- Introduction Text -->

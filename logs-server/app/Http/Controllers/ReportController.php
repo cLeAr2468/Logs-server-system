@@ -245,9 +245,7 @@ class ReportController extends Controller
             // Prepare data for the view
             $data = [
                 'reportTitle' => $reportType,
-                'docCode' => 'GTC-QF-07',
-                'revisionNo' => '03',
-                'effectiveDate' => 'March 21, 2023',
+                'generatedAt' => Carbon::now()->format('F d, Y h:i A'),
                 'startDate' => $startDate,
                 'endDate' => $endDate,
                 'includeSummary' => $includeSummary,
@@ -887,5 +885,38 @@ class ReportController extends Controller
         ];
         
         return response()->make($fileContent, 200, $headers);
+    }
+    
+    /**
+     * Clear all exported reports
+     */
+    public function clearAllReports()
+    {
+        try {
+            // Get all reports
+            $reports = ExportedReport::all();
+            
+            // Delete files from storage
+            foreach ($reports as $report) {
+                if (Storage::disk('public')->exists($report->file_path)) {
+                    Storage::disk('public')->delete($report->file_path);
+                }
+            }
+            
+            // Delete all records from database
+            ExportedReport::truncate();
+            
+            return response()->json([
+                'success' => true,
+                'message' => 'All reports cleared successfully'
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Error clearing reports: ' . $e->getMessage());
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to clear reports'
+            ], 500);
+        }
     }
 }
