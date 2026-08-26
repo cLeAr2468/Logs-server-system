@@ -885,4 +885,37 @@ class ReportController extends Controller
         
         return response()->make($fileContent, 200, $headers);
     }
+    
+    /**
+     * Clear all exported reports
+     */
+    public function clearAllReports()
+    {
+        try {
+            // Get all reports
+            $reports = ExportedReport::all();
+            
+            // Delete files from storage
+            foreach ($reports as $report) {
+                if (Storage::disk('public')->exists($report->file_path)) {
+                    Storage::disk('public')->delete($report->file_path);
+                }
+            }
+            
+            // Delete database records
+            ExportedReport::truncate();
+            
+            return response()->json([
+                'success' => true,
+                'message' => 'All reports cleared successfully'
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Error clearing reports: ' . $e->getMessage());
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to clear reports'
+            ], 500);
+        }
+    }
 }
