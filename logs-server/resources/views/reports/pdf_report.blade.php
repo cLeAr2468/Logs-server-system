@@ -201,13 +201,7 @@
     </div>
     
     <!-- Document Info -->
-    @if(isset($docCode))
-    <div class="doc-info">
-        <div>Doc. Code: {{ $docCode }}</div>
-        <div>Revision No.: {{ $revisionNo ?? '01' }}</div>
-        <div>Effective Date: {{ $effectiveDate ?? date('F d, Y') }}</div>
-    </div>
-    @endif
+    <!-- Removed Doc. Code, Revision No., and Effective Date section -->
     
     <!-- Report Title -->
     <div class="report-title">{{ $reportTitle }}</div>
@@ -219,7 +213,7 @@
     @endif
     
     <div class="report-subtitle">
-        Generated: {{ date('F d, Y h:i A') }}
+        Generated: {{ date('F Y') }}
     </div>
     
     <!-- Introduction Text -->
