@@ -906,23 +906,33 @@ class ReportController extends Controller
         }
         
         $fileContent = Storage::disk('public')->get($report->file_path);
-        $filename = basename($report->file_path);
         
-        // Determine content type based on the stored file_format field
+        // Get the original filename from the file_path
+        $originalFilename = basename($report->file_path);
+        
+        // Determine content type and correct file extension based on the stored file_format field
         $format = strtolower($report->file_format);
         $contentType = 'text/csv';
+        $correctExtension = 'csv';
         
         if ($format === 'pdf') {
             $contentType = 'application/pdf';
+            $correctExtension = 'pdf';
         } elseif (in_array($format, ['xlsx', 'excel', 'xls'])) {
             $contentType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+            $correctExtension = 'xlsx';
         } elseif ($format === 'csv') {
             $contentType = 'text/csv';
+            $correctExtension = 'csv';
         }
+        
+        // Get filename without extension and rebuild with correct extension
+        $filenameWithoutExt = pathinfo($originalFilename, PATHINFO_FILENAME);
+        $downloadFilename = $filenameWithoutExt . '.' . $correctExtension;
         
         $headers = [
             'Content-Type' => $contentType,
-            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+            'Content-Disposition' => 'attachment; filename="' . $downloadFilename . '"',
         ];
         
         return response()->make($fileContent, 200, $headers);
