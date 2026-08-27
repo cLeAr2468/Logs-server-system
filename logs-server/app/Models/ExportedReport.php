@@ -15,6 +15,8 @@ class ExportedReport extends Model
         'report_type',
         'file_format',
         'file_path',
+        'status',
+        'error_message',
         'file_size',
         'start_date',
         'end_date',

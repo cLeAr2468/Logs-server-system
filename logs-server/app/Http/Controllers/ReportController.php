@@ -157,83 +157,113 @@ class ReportController extends Controller
         $includeDetails = $request->input('include_details', '1') === '1';
         $includeFeedback = $request->input('include_feedback', '0') === '1';
         
-        // Build transactions query
-        $query = Transaction::with('user');
-        
-        if ($startDate) {
-            $query->whereDate('created_at', '>=', $startDate);
-        }
-        
-        if ($endDate) {
-            $query->whereDate('created_at', '<=', $endDate);
-        }
-        
-        $transactions = $query->orderBy('created_at', 'desc')->get();
-        
-        // Calculate statistics if summary is included
-        $statistics = null;
-        if ($includeSummary) {
-            $statistics = $this->calculateStatistics($transactions);
-        }
-        
-        // Get feedback data if feedback is included
-        $feedbackData = null;
-        if ($includeFeedback) {
-            $feedbackData = $this->getFeedbackData($startDate, $endDate);
-        }
-        
         // Generate filename
         $dateRange = ($startDate && $endDate) ? $startDate . '_to_' . $endDate : date('Y-m-d');
         $filename = 'transactions_report_' . $dateRange . '.' . $format;
-        
-        // Save report to database
         $staffId = $request->user() ? $request->user()->id : null;
         
-        // Generate file based on format
-        $filePath = 'reports/' . $filename;
-        $contentType = 'text/csv';
-        
-        if ($format === 'pdf') {
-            $fileContent = $this->generatePDFReport($transactions, $statistics, $feedbackData, $includeSummary, $includeDetails, $includeFeedback, $reportType, $startDate, $endDate);
-            $contentType = 'application/pdf';
-        } elseif ($format === 'excel') {
-            $fileContent = $this->generateExcelReport($transactions, $statistics, $feedbackData, $includeSummary, $includeDetails, $includeFeedback, $reportType, $startDate, $endDate);
-            $contentType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-            $filename = str_replace('.excel', '.xlsx', $filename);
+        try {
+            // Build transactions query
+            $query = Transaction::with('user');
+            
+            if ($startDate) {
+                $query->whereDate('created_at', '>=', $startDate);
+            }
+            
+            if ($endDate) {
+                $query->whereDate('created_at', '<=', $endDate);
+            }
+            
+            $transactions = $query->orderBy('created_at', 'desc')->get();
+            
+            // Calculate statistics if summary is included
+            $statistics = null;
+            if ($includeSummary) {
+                $statistics = $this->calculateStatistics($transactions);
+            }
+            
+            // Get feedback data if feedback is included
+            $feedbackData = null;
+            if ($includeFeedback) {
+                $feedbackData = $this->getFeedbackData($startDate, $endDate);
+            }
+            
+            // Generate file based on format
             $filePath = 'reports/' . $filename;
-        } else {
-            $fileContent = $this->generateCSVReport($transactions, $statistics, $feedbackData, $includeSummary, $includeDetails, $includeFeedback, $reportType, $startDate, $endDate);
+            $contentType = 'text/csv';
+            
+            if ($format === 'pdf') {
+                $fileContent = $this->generatePDFReport($transactions, $statistics, $feedbackData, $includeSummary, $includeDetails, $includeFeedback, $reportType, $startDate, $endDate);
+                $contentType = 'application/pdf';
+            } elseif ($format === 'excel') {
+                $fileContent = $this->generateExcelReport($transactions, $statistics, $feedbackData, $includeSummary, $includeDetails, $includeFeedback, $reportType, $startDate, $endDate);
+                $contentType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+                $filename = str_replace('.excel', '.xlsx', $filename);
+                $filePath = 'reports/' . $filename;
+            } else {
+                $fileContent = $this->generateCSVReport($transactions, $statistics, $feedbackData, $includeSummary, $includeDetails, $includeFeedback, $reportType, $startDate, $endDate);
+            }
+            
+            // Store file
+            Storage::disk('public')->put($filePath, $fileContent);
+            
+            // Get file size
+            $fileSize = Storage::disk('public')->size($filePath);
+            $fileSizeFormatted = $this->formatBytes($fileSize);
+            
+            // Save to database with success status
+            ExportedReport::create([
+                'staff_id' => $staffId,
+                'report_name' => $reportType . ' - ' . ($dateRange),
+                'report_type' => $reportType,
+                'file_format' => strtoupper($format === 'excel' ? 'XLSX' : $format),
+                'file_path' => $filePath,
+                'status' => 'success',
+                'error_message' => null,
+                'file_size' => $fileSizeFormatted,
+                'start_date' => $startDate,
+                'end_date' => $endDate,
+                'include_summary' => $includeSummary,
+                'include_details' => $includeDetails,
+                'include_feedback' => $includeFeedback,
+            ]);
+            
+            // Return file for download
+            $headers = [
+                'Content-Type' => $contentType,
+                'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+            ];
+            
+            return response()->make($fileContent, 200, $headers);
+            
+        } catch (\Exception $e) {
+            // Log the error
+            \Log::error('Export Report Error: ' . $e->getMessage());
+            \Log::error('Stack trace: ' . $e->getTraceAsString());
+            
+            // Save failed export to database
+            ExportedReport::create([
+                'staff_id' => $staffId,
+                'report_name' => $reportType . ' - ' . ($dateRange),
+                'report_type' => $reportType,
+                'file_format' => strtoupper($format === 'excel' ? 'XLSX' : $format),
+                'file_path' => $filePath,
+                'status' => 'failed',
+                'error_message' => $e->getMessage(),
+                'file_size' => '0 B',
+                'start_date' => $startDate,
+                'end_date' => $endDate,
+                'include_summary' => $includeSummary,
+                'include_details' => $includeDetails,
+                'include_feedback' => $includeFeedback,
+            ]);
+            
+            // Return error response
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to generate report: ' . $e->getMessage()
+            ], 500);
         }
-        
-        // Store file
-        Storage::disk('public')->put($filePath, $fileContent);
-        
-        // Get file size
-        $fileSize = Storage::disk('public')->size($filePath);
-        $fileSizeFormatted = $this->formatBytes($fileSize);
-        
-        // Save to database
-        ExportedReport::create([
-            'staff_id' => $staffId,
-            'report_name' => $reportType . ' - ' . ($dateRange),
-            'report_type' => $reportType,
-            'file_format' => strtoupper($format === 'excel' ? 'XLSX' : $format),
-            'file_path' => $filePath,
-            'file_size' => $fileSizeFormatted,
-            'start_date' => $startDate,
-            'end_date' => $endDate,
-            'include_summary' => $includeSummary,
-            'include_details' => $includeDetails,
-            'include_feedback' => $includeFeedback,
-        ]);
-        
-        // Return file for download
-        $headers = [
-            'Content-Type' => $contentType,
-            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
-        ];
-        
-        return response()->make($fileContent, 200, $headers);
     }
     
     /**
@@ -829,6 +859,7 @@ class ReportController extends Controller
     public function getRecentReports()
     {
         $reports = ExportedReport::with('staff:id,fname,lname')
+            ->where('status', 'success') // Only show successful exports
             ->orderBy('created_at', 'desc')
             ->limit(10)
             ->get()
@@ -858,6 +889,15 @@ class ReportController extends Controller
     {
         $report = ExportedReport::findOrFail($id);
         
+        // Check if export was successful
+        if ($report->status !== 'success') {
+            return response()->json([
+                'success' => false,
+                'message' => 'This report export failed and cannot be downloaded',
+                'error' => $report->error_message
+            ], 400);
+        }
+        
         if (!Storage::disk('public')->exists($report->file_path)) {
             return response()->json([
                 'success' => false,
@@ -868,14 +908,16 @@ class ReportController extends Controller
         $fileContent = Storage::disk('public')->get($report->file_path);
         $filename = basename($report->file_path);
         
-        // Determine content type based on file extension
-        $extension = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+        // Determine content type based on the stored file_format field
+        $format = strtolower($report->file_format);
         $contentType = 'text/csv';
         
-        if ($extension === 'pdf') {
+        if ($format === 'pdf') {
             $contentType = 'application/pdf';
-        } elseif (in_array($extension, ['xlsx', 'xls'])) {
+        } elseif (in_array($format, ['xlsx', 'excel', 'xls'])) {
             $contentType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+        } elseif ($format === 'csv') {
+            $contentType = 'text/csv';
         }
         
         $headers = [
