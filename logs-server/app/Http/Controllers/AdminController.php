@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Admin;
 use App\Models\Staff;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -15,30 +16,9 @@ class AdminController extends Controller
     public function verify(Request $request)
     {
         try {
-            // Check if token is for default admin
-            $authHeader = $request->header('Authorization');
-            if ($authHeader && strpos($authHeader, 'Bearer ') === 0) {
-                $token = substr($authHeader, 7);
-                
-                // Check if it's the default admin token
-                $decoded = base64_decode($token);
-                if (strpos($decoded, 'admin@nwssu.edu.ph') === 0) {
-                    return response()->json([
-                        'success' => true,
-                        'authenticated' => true,
-                        'user' => [
-                            'id' => 0,
-                            'email' => 'admin@nwssu.edu.ph',
-                            'role' => 'admin',
-                        ],
-                    ], 200);
-                }
-            }
-
-            // Otherwise, check if it's a valid staff token
-            $staff = $request->user();
+            $user = $request->user();
             
-            if (!$staff) {
+            if (!$user) {
                 return response()->json([
                     'success' => false,
                     'authenticated' => false,
@@ -46,13 +26,16 @@ class AdminController extends Controller
                 ], 401);
             }
 
+            // Check if user is Admin or Staff
+            $role = $user instanceof Admin ? 'admin' : 'staff';
+
             return response()->json([
                 'success' => true,
                 'authenticated' => true,
                 'user' => [
-                    'id' => $staff->id,
-                    'email' => $staff->email,
-                    'role' => 'staff',
+                    'id' => $user->id,
+                    'email' => $user->email,
+                    'role' => $role,
                 ],
             ], 200);
 
@@ -68,7 +51,7 @@ class AdminController extends Controller
     /**
      * Admin/Staff Login
      * Supports:
-     * 1. Default admin credentials (admin@nwssu.edu.ph / admin)
+     * 1. Admin credentials from admins table
      * 2. Staff credentials from staff table
      */
     public function login(Request $request)
@@ -91,27 +74,45 @@ class AdminController extends Controller
             $email = trim($request->email);
             $password = $request->password;
 
-            // Check 1: Default admin credentials
-            if ($email === 'admin@nwssu.edu.ph' && $password === 'admin') {
-                // Create a token for default admin (using first user or create dummy record)
-                // We'll use a simple approach - create a token without a model
-                $token = base64_encode($email . ':' . time());
+            // Check 1: Admin credentials from database
+            $admin = Admin::whereRaw('LOWER(email) = ?', [strtolower($email)])->first();
+
+            if ($admin) {
+                // Check if password matches
+                if (Hash::check($password, $admin->password)) {
+                    // Generate token for admin
+                    $token = $admin->createToken('admin-token')->plainTextToken;
+
+                    return response()->json([
+                        'success' => true,
+                        'message' => 'Admin login successful',
+                        'token' => $token,
+                        'user' => [
+                            'id' => $admin->id,
+                            'email' => $admin->email,
+                            'role' => 'admin',
+                            'fname' => $admin->fname,
+                            'mname' => $admin->mname,
+                            'lname' => $admin->lname,
+                            'full_name' => $admin->full_name,
+                            'status' => $admin->status,
+                        ],
+                    ], 200);
+                }
+                
+                // Admin found but password doesn't match
+                \Log::warning('Admin login failed - invalid password', [
+                    'email' => $email,
+                    'admin_id' => $admin->id
+                ]);
 
                 return response()->json([
-                    'success' => true,
-                    'message' => 'Admin login successful',
-                    'token' => $token,
-                    'user' => [
-                        'id' => 0,
-                        'email' => $email,
-                        'role' => 'admin',
-                        'full_name' => 'System Administrator',
-                    ],
-                ], 200);
+                    'success' => false,
+                    'message' => 'Invalid email or password',
+                ], 401);
             }
 
             // Check 2: Staff credentials from database
-            // Use case-insensitive email search
             $staff = Staff::whereRaw('LOWER(email) = ?', [strtolower($email)])->first();
 
             if ($staff) {
@@ -143,13 +144,13 @@ class AdminController extends Controller
                     'staff_id' => $staff->id
                 ]);
             } else {
-                // Staff not found in database
-                \Log::warning('Staff login failed - email not found', [
+                // Neither admin nor staff found
+                \Log::warning('Login failed - email not found', [
                     'email' => $email
                 ]);
             }
 
-            // Check 3: Invalid credentials
+            // Invalid credentials
             return response()->json([
                 'success' => false,
                 'message' => 'Invalid email or password',
@@ -199,53 +200,45 @@ class AdminController extends Controller
     public function getProfile(Request $request)
     {
         try {
-            // Check if token is for default admin
-            $authHeader = $request->header('Authorization');
-            if ($authHeader && strpos($authHeader, 'Bearer ') === 0) {
-                $token = substr($authHeader, 7);
-                
-                // Check if it's the default admin token
-                $decoded = base64_decode($token);
-                if (strpos($decoded, 'admin@nwssu.edu.ph') === 0) {
-                    return response()->json([
-                        'success' => true,
-                        'user' => [
-                            'id' => 0,
-                            'email' => 'admin@nwssu.edu.ph',
-                            'role' => 'admin',
-                            'full_name' => 'System Administrator',
-                            'firstname' => 'System',
-                            'middlename' => '',
-                            'lastname' => 'Administrator',
-                            'staff_id' => 'ADMIN',
-                            'status' => 'Active',
-                        ],
-                    ], 200);
-                }
-            }
-
-            // Otherwise, get staff profile
-            $staff = $request->user();
+            $user = $request->user();
             
-            if (!$staff) {
+            if (!$user) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized',
                 ], 401);
             }
 
+            // Check if user is Admin
+            if ($user instanceof Admin) {
+                return response()->json([
+                    'success' => true,
+                    'user' => [
+                        'id' => $user->id,
+                        'email' => $user->email,
+                        'role' => 'admin',
+                        'firstname' => $user->fname,
+                        'middlename' => $user->mname,
+                        'lastname' => $user->lname,
+                        'full_name' => $user->full_name,
+                        'status' => $user->status,
+                    ],
+                ], 200);
+            }
+
+            // Otherwise, it's staff
             return response()->json([
                 'success' => true,
                 'staff' => [
-                    'id' => $staff->id,
-                    'staff_id' => $staff->staff_id,
-                    'email' => $staff->email,
+                    'id' => $user->id,
+                    'staff_id' => $user->staff_id,
+                    'email' => $user->email,
                     'role' => 'staff',
-                    'firstname' => $staff->fname,
-                    'middlename' => $staff->mname,
-                    'lastname' => $staff->lname,
-                    'full_name' => trim("{$staff->fname} {$staff->mname} {$staff->lname}"),
-                    'status' => $staff->status ?? 'Active',
+                    'firstname' => $user->fname,
+                    'middlename' => $user->mname,
+                    'lastname' => $user->lname,
+                    'full_name' => trim("{$user->fname} {$user->mname} {$user->lname}"),
+                    'status' => $user->status ?? 'Active',
                 ],
             ], 200);
 
@@ -268,23 +261,9 @@ class AdminController extends Controller
     public function updateProfile(Request $request)
     {
         try {
-            // Check if it's default admin (cannot update)
-            $authHeader = $request->header('Authorization');
-            if ($authHeader && strpos($authHeader, 'Bearer ') === 0) {
-                $token = substr($authHeader, 7);
-                $decoded = base64_decode($token);
-                if (strpos($decoded, 'admin@nwssu.edu.ph') === 0) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Default admin profile cannot be updated',
-                    ], 403);
-                }
-            }
-
-            // Get authenticated staff
-            $staff = $request->user();
+            $user = $request->user();
             
-            if (!$staff) {
+            if (!$user) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized',
@@ -293,11 +272,10 @@ class AdminController extends Controller
 
             // Validate input
             $validator = Validator::make($request->all(), [
-                'staff_id' => 'sometimes|required|unique:staff,staff_id,' . $staff->id,
                 'firstname' => 'sometimes|required',
                 'middlename' => 'nullable',
                 'lastname' => 'sometimes|required',
-                'email' => 'sometimes|required|email|unique:staff,email,' . $staff->id,
+                'email' => 'sometimes|required|email',
                 'status' => 'nullable',
             ]);
 
@@ -309,46 +287,120 @@ class AdminController extends Controller
                 ], 422);
             }
 
+            // Check if user is Admin
+            if ($user instanceof Admin) {
+                // Validate email uniqueness for admins
+                if ($request->has('email') && $request->email !== $user->email) {
+                    $existingAdmin = Admin::where('email', $request->email)->where('id', '!=', $user->id)->first();
+                    if ($existingAdmin) {
+                        return response()->json([
+                            'success' => false,
+                            'message' => 'Email already in use',
+                        ], 422);
+                    }
+                }
+
+                // Update admin fields
+                if ($request->has('firstname')) {
+                    $user->fname = $request->firstname;
+                }
+                
+                if ($request->has('middlename')) {
+                    $user->mname = $request->middlename;
+                }
+                
+                if ($request->has('lastname')) {
+                    $user->lname = $request->lastname;
+                }
+                
+                if ($request->has('email')) {
+                    $user->email = $request->email;
+                }
+                
+                if ($request->has('status')) {
+                    $user->status = $request->status;
+                }
+
+                $user->save();
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Profile updated successfully',
+                    'user' => [
+                        'id' => $user->id,
+                        'email' => $user->email,
+                        'role' => 'admin',
+                        'firstname' => $user->fname,
+                        'middlename' => $user->mname,
+                        'lastname' => $user->lname,
+                        'full_name' => $user->full_name,
+                        'status' => $user->status,
+                    ],
+                ], 200);
+            }
+
+            // Otherwise, update staff profile
+            // Validate staff_id and email uniqueness for staff
+            if ($request->has('staff_id') && $request->staff_id !== $user->staff_id) {
+                $existingStaff = Staff::where('staff_id', $request->staff_id)->where('id', '!=', $user->id)->first();
+                if ($existingStaff) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Staff ID already in use',
+                    ], 422);
+                }
+            }
+
+            if ($request->has('email') && $request->email !== $user->email) {
+                $existingStaff = Staff::where('email', $request->email)->where('id', '!=', $user->id)->first();
+                if ($existingStaff) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Email already in use',
+                    ], 422);
+                }
+            }
+
             // Update staff fields
             if ($request->has('staff_id')) {
-                $staff->staff_id = $request->staff_id;
+                $user->staff_id = $request->staff_id;
             }
             
             if ($request->has('firstname')) {
-                $staff->fname = $request->firstname;
+                $user->fname = $request->firstname;
             }
             
             if ($request->has('middlename')) {
-                $staff->mname = $request->middlename;
+                $user->mname = $request->middlename;
             }
             
             if ($request->has('lastname')) {
-                $staff->lname = $request->lastname;
+                $user->lname = $request->lastname;
             }
             
             if ($request->has('email')) {
-                $staff->email = $request->email;
+                $user->email = $request->email;
             }
             
             if ($request->has('status')) {
-                $staff->status = $request->status;
+                $user->status = $request->status;
             }
 
-            $staff->save();
+            $user->save();
 
             return response()->json([
                 'success' => true,
                 'message' => 'Profile updated successfully',
                 'staff' => [
-                    'id' => $staff->id,
-                    'staff_id' => $staff->staff_id,
-                    'email' => $staff->email,
+                    'id' => $user->id,
+                    'staff_id' => $user->staff_id,
+                    'email' => $user->email,
                     'role' => 'staff',
-                    'firstname' => $staff->fname,
-                    'middlename' => $staff->mname,
-                    'lastname' => $staff->lname,
-                    'full_name' => trim("{$staff->fname} {$staff->mname} {$staff->lname}"),
-                    'status' => $staff->status ?? 'Active',
+                    'firstname' => $user->fname,
+                    'middlename' => $user->mname,
+                    'lastname' => $user->lname,
+                    'full_name' => trim("{$user->fname} {$user->mname} {$user->lname}"),
+                    'status' => $user->status ?? 'Active',
                 ],
             ], 200);
 
@@ -371,23 +423,9 @@ class AdminController extends Controller
     public function changePassword(Request $request)
     {
         try {
-            // Check if it's default admin (cannot change password)
-            $authHeader = $request->header('Authorization');
-            if ($authHeader && strpos($authHeader, 'Bearer ') === 0) {
-                $token = substr($authHeader, 7);
-                $decoded = base64_decode($token);
-                if (strpos($decoded, 'admin@nwssu.edu.ph') === 0) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Default admin password cannot be changed',
-                    ], 403);
-                }
-            }
-
-            // Get authenticated staff
-            $staff = $request->user();
+            $user = $request->user();
             
-            if (!$staff) {
+            if (!$user) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized',
@@ -409,7 +447,7 @@ class AdminController extends Controller
             }
 
             // Verify current password
-            if (!Hash::check($request->current_password, $staff->password)) {
+            if (!Hash::check($request->current_password, $user->password)) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Current password is incorrect',
@@ -417,7 +455,7 @@ class AdminController extends Controller
             }
 
             // Check if new password is different from current
-            if (Hash::check($request->new_password, $staff->password)) {
+            if (Hash::check($request->new_password, $user->password)) {
                 return response()->json([
                     'success' => false,
                     'message' => 'New password must be different from current password',
@@ -427,21 +465,26 @@ class AdminController extends Controller
             // Update password using direct DB update to avoid double hashing
             $hashedPassword = Hash::make($request->new_password);
             
-            \Log::info('Changing staff password', [
-                'staff_id' => $staff->id,
-                'email' => $staff->email,
+            // Determine table name based on user type
+            $tableName = $user instanceof Admin ? 'admins' : 'staff';
+            
+            \Log::info('Changing password', [
+                'user_id' => $user->id,
+                'email' => $user->email,
+                'user_type' => $tableName,
             ]);
             
-            \DB::table('staff')
-                ->where('id', $staff->id)
+            \DB::table($tableName)
+                ->where('id', $user->id)
                 ->update([
                     'password' => $hashedPassword,
                     'updated_at' => now()
                 ]);
 
-            \Log::info('Staff password changed successfully', [
-                'staff_id' => $staff->id,
-                'email' => $staff->email,
+            \Log::info('Password changed successfully', [
+                'user_id' => $user->id,
+                'email' => $user->email,
+                'user_type' => $tableName,
             ]);
 
             return response()->json([

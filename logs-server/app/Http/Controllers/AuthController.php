@@ -384,7 +384,7 @@ class AuthController extends Controller
             'email' => 'required|email'
         ]);
 
-        // Check if user exists in users table OR staff table
+        // Check if user exists in users table OR staff table OR admins table
         $user = User::where('email', $request->email)->first();
         $userType = 'user';
         
@@ -392,6 +392,12 @@ class AuthController extends Controller
         if (!$user) {
             $user = \App\Models\Staff::where('email', $request->email)->first();
             $userType = 'staff';
+        }
+        
+        // If not found in staff, check admins table
+        if (!$user) {
+            $user = \App\Models\Admin::where('email', $request->email)->first();
+            $userType = 'admin';
         }
 
         if (!$user) {
@@ -493,12 +499,17 @@ class AuthController extends Controller
             'email' => 'required|email'
         ]);
 
-        // Check if user exists in users table OR staff table
+        // Check if user exists in users table OR staff table OR admins table
         $user = User::where('email', $request->email)->first();
         
         // If not found in users, check staff table
         if (!$user) {
             $user = \App\Models\Staff::where('email', $request->email)->first();
+        }
+        
+        // If not found in staff, check admins table
+        if (!$user) {
+            $user = \App\Models\Admin::where('email', $request->email)->first();
         }
 
         if (!$user) {
@@ -583,14 +594,21 @@ class AuthController extends Controller
             ], 400);
         }
 
-        // Find user in users table OR staff table
+        // Find user in users table OR staff table OR admins table
         $user = User::where('email', $request->email)->first();
         $isStaff = false;
+        $isAdmin = false;
         
         // If not found in users, check staff table
         if (!$user) {
             $user = \App\Models\Staff::where('email', $request->email)->first();
             $isStaff = true;
+        }
+        
+        // If not found in staff, check admins table
+        if (!$user) {
+            $user = \App\Models\Admin::where('email', $request->email)->first();
+            $isAdmin = true;
         }
 
         if (!$user) {
@@ -600,8 +618,8 @@ class AuthController extends Controller
         }
 
         // Update password
-        // For Staff model, we need to use DB update to bypass auto-hashing
-        // since Staff model has 'password' => 'hashed' in casts
+        // For Staff and Admin models, we need to use DB update to bypass auto-hashing
+        // since they have 'password' => 'hashed' in casts
         if ($isStaff) {
             $hashedPassword = Hash::make($request->password);
             
@@ -631,6 +649,35 @@ class AuthController extends Controller
                 'affected_rows' => $affectedRows,
                 'updated_password_hash' => substr($user->password, 0, 20) . '...'
             ]);
+        } elseif ($isAdmin) {
+            $hashedPassword = Hash::make($request->password);
+            
+            // Log before update
+            \Log::info('Resetting admin password', [
+                'email' => $request->email,
+                'admin_id' => $user->id,
+                'old_password_hash' => substr($user->password, 0, 20) . '...',
+                'new_password_hash' => substr($hashedPassword, 0, 20) . '...'
+            ]);
+            
+            // Use DB update to bypass model events and auto-hashing
+            $affectedRows = \DB::table('admins')
+                ->where('id', $user->id)
+                ->update([
+                    'password' => $hashedPassword,
+                    'updated_at' => now()
+                ]);
+            
+            // Refresh the model to get updated data
+            $user->refresh();
+            
+            // Log after update
+            \Log::info('Admin password reset successful', [
+                'email' => $request->email,
+                'admin_id' => $user->id,
+                'affected_rows' => $affectedRows,
+                'updated_password_hash' => substr($user->password, 0, 20) . '...'
+            ]);
         } else {
             // For regular users, just hash and save normally
             \Log::info('Resetting user password', [
@@ -656,7 +703,7 @@ class AuthController extends Controller
 
         return response()->json([
             'message' => 'Password reset successfully',
-            'user_type' => $isStaff ? 'staff' : 'user'
+            'user_type' => $isAdmin ? 'admin' : ($isStaff ? 'staff' : 'user')
         ], 200);
     }
 }
