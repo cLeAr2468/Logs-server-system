@@ -362,6 +362,9 @@ class MasterlistController extends Controller
                 ], 422);
             }
 
+            // Use database transaction
+            \DB::beginTransaction();
+
             // Process data rows
             $imported = 0;
             $skipped = 0;
@@ -435,24 +438,32 @@ class MasterlistController extends Controller
             // Prepare response message based on results
             $message = '';
             $success = true;
+            $httpStatus = 200;
             
-            if ($imported === 0 && $skipped === $totalRows) {
-                // All records are duplicates
+            if ($imported === 0 && $skipped === $totalRows && $totalRows > 0) {
+                // All records are duplicates - rollback transaction
+                \DB::rollBack();
                 $message = "All records are already in the masterlist. No new records imported.";
                 $success = false;
+                $httpStatus = 200; // Still 200 but with success: false
             } elseif ($imported > 0 && $skipped > 0) {
-                // Some imported, some skipped
+                // Some imported, some skipped - commit transaction
+                \DB::commit();
                 $message = "{$imported} new record(s) imported successfully. {$skipped} duplicate record(s) skipped.";
+                $success = true; // Success because some records were imported
             } elseif ($imported > 0 && $skipped === 0) {
-                // All imported
+                // All imported - commit transaction
+                \DB::commit();
                 $message = "All {$imported} record(s) imported successfully!";
+                $success = true;
             } else {
-                // None imported
+                // None imported - rollback transaction
+                \DB::rollBack();
                 $message = "No records were imported. Please check your CSV file.";
                 $success = false;
             }
 
-            // Log activity
+            // Log activity only if records were actually imported
             $user = $request->user();
             if ($user && $imported > 0) {
                 ActivityLog::create([
@@ -474,9 +485,12 @@ class MasterlistController extends Controller
                 'total' => $totalRows,
                 'duplicates' => count($duplicateRecords),
                 'errors' => $errors,
-            ], 200);
+            ], $httpStatus);
 
         } catch (\Exception $e) {
+            // Rollback on any exception
+            \DB::rollBack();
+            
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to import CSV file',
