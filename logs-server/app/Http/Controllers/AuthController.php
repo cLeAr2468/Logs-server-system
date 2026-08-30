@@ -598,17 +598,20 @@ class AuthController extends Controller
         $user = User::where('email', $request->email)->first();
         $isStaff = false;
         $isAdmin = false;
+        $userType = 'user';
         
         // If not found in users, check staff table
         if (!$user) {
             $user = \App\Models\Staff::where('email', $request->email)->first();
             $isStaff = true;
+            $userType = 'staff';
         }
         
         // If not found in staff, check admins table
         if (!$user) {
             $user = \App\Models\Admin::where('email', $request->email)->first();
             $isAdmin = true;
+            $userType = 'admin';
         }
 
         if (!$user) {
@@ -620,36 +623,7 @@ class AuthController extends Controller
         // Update password
         // For Staff and Admin models, we need to use DB update to bypass auto-hashing
         // since they have 'password' => 'hashed' in casts
-        if ($isStaff) {
-            $hashedPassword = Hash::make($request->password);
-            
-            // Log before update
-            \Log::info('Resetting staff password', [
-                'email' => $request->email,
-                'staff_id' => $user->id,
-                'old_password_hash' => substr($user->password, 0, 20) . '...',
-                'new_password_hash' => substr($hashedPassword, 0, 20) . '...'
-            ]);
-            
-            // Use DB update to bypass model events and auto-hashing
-            $affectedRows = \DB::table('staff')
-                ->where('id', $user->id)
-                ->update([
-                    'password' => $hashedPassword,
-                    'updated_at' => now()
-                ]);
-            
-            // Refresh the model to get updated data
-            $user->refresh();
-            
-            // Log after update
-            \Log::info('Staff password reset successful', [
-                'email' => $request->email,
-                'staff_id' => $user->id,
-                'affected_rows' => $affectedRows,
-                'updated_password_hash' => substr($user->password, 0, 20) . '...'
-            ]);
-        } elseif ($isAdmin) {
+        if ($isAdmin) {
             $hashedPassword = Hash::make($request->password);
             
             // Log before update
@@ -678,6 +652,35 @@ class AuthController extends Controller
                 'affected_rows' => $affectedRows,
                 'updated_password_hash' => substr($user->password, 0, 20) . '...'
             ]);
+        } elseif ($isStaff) {
+            $hashedPassword = Hash::make($request->password);
+            
+            // Log before update
+            \Log::info('Resetting staff password', [
+                'email' => $request->email,
+                'staff_id' => $user->id,
+                'old_password_hash' => substr($user->password, 0, 20) . '...',
+                'new_password_hash' => substr($hashedPassword, 0, 20) . '...'
+            ]);
+            
+            // Use DB update to bypass model events and auto-hashing
+            $affectedRows = \DB::table('staff')
+                ->where('id', $user->id)
+                ->update([
+                    'password' => $hashedPassword,
+                    'updated_at' => now()
+                ]);
+            
+            // Refresh the model to get updated data
+            $user->refresh();
+            
+            // Log after update
+            \Log::info('Staff password reset successful', [
+                'email' => $request->email,
+                'staff_id' => $user->id,
+                'affected_rows' => $affectedRows,
+                'updated_password_hash' => substr($user->password, 0, 20) . '...'
+            ]);
         } else {
             // For regular users, just hash and save normally
             \Log::info('Resetting user password', [
@@ -703,7 +706,7 @@ class AuthController extends Controller
 
         return response()->json([
             'message' => 'Password reset successfully',
-            'user_type' => $isAdmin ? 'admin' : ($isStaff ? 'staff' : 'user')
+            'user_type' => $userType
         ], 200);
     }
 }
