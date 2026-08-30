@@ -65,27 +65,44 @@ class AnnouncementController extends Controller
                 'status' => 'required|in:draft,published,archive',
             ]);
 
-            // Get staff_id - handle both staff and default admin
+            // Get the authenticated user (admin or staff)
+            $user = $request->user();
+            
+            if (!$user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized - User not authenticated',
+                ], 401);
+            }
+
+            // Determine staff_id based on user type
             $staffId = null;
             
-            if ($request->user()) {
-                // Staff user authenticated via Sanctum
-                $staffId = $request->user()->id;
-            } else {
-                // Default admin - get or create a system staff account
-                $systemStaff = \App\Models\Staff::firstOrCreate(
-                    ['email' => 'admin@nwssu.edu.ph'],
+            if ($user instanceof \App\Models\Admin) {
+                // For Admin users, create or get a staff record
+                $staffRecord = \App\Models\Staff::firstOrCreate(
+                    ['email' => $user->email],
                     [
-                        'staff_id' => 'ADMIN-000',
-                        'fname' => 'System',
-                        'mname' => '',
-                        'lname' => 'Administrator',
-                        'email' => 'admin@nwssu.edu.ph',
-                        'password' => \Hash::make('admin'),
+                        'staff_id' => 'ADMIN-' . str_pad($user->id, 3, '0', STR_PAD_LEFT),
+                        'fname' => $user->fname,
+                        'mname' => $user->mname,
+                        'lname' => $user->lname,
+                        'email' => $user->email,
+                        'password' => $user->password,
                         'status' => 'Active',
                     ]
                 );
-                $staffId = $systemStaff->id;
+                $staffId = $staffRecord->id;
+            } elseif ($user instanceof \App\Models\Staff) {
+                // For Staff users, use their ID directly
+                $staffId = $user->id;
+            }
+
+            if (!$staffId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unable to determine staff ID',
+                ], 500);
             }
 
             $data = [
@@ -110,6 +127,7 @@ class AnnouncementController extends Controller
             $announcement->load('staff:id,staff_id,fname,mname,lname,email');
 
             return response()->json([
+                'success' => true,
                 'message' => $request->status === 'published' 
                     ? 'Announcement published successfully' 
                     : 'Announcement saved as draft',

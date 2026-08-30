@@ -4,13 +4,14 @@ namespace App\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
+use App\Models\Admin;
 use App\Models\Staff;
 
 class AdminAuth
 {
     /**
      * Handle an incoming request.
-     * Supports both default admin token and Sanctum staff tokens
+     * Supports both Admin and Staff Sanctum tokens
      */
     public function handle(Request $request, Closure $next)
     {
@@ -25,27 +26,29 @@ class AdminAuth
 
         $token = substr($authHeader, 7);
 
-        // Check if it's the default admin token (Base64 encoded)
-        $decoded = @base64_decode($token, true);
-        if ($decoded && strpos($decoded, 'admin@nwssu.edu.ph') === 0) {
-            // Valid default admin token
-            // Set a pseudo-user for the request
-            $request->attributes->set('admin_type', 'default');
-            return $next($request);
-        }
-
-        // Check if it's a Sanctum token (staff)
+        // Check if it's a Sanctum token (admin or staff)
         $sanctumToken = \Laravel\Sanctum\PersonalAccessToken::findToken($token);
         
         if ($sanctumToken) {
-            $staff = $sanctumToken->tokenable;
+            $user = $sanctumToken->tokenable;
             
-            if ($staff && $staff instanceof Staff) {
-                // Valid staff token
-                $request->setUserResolver(function () use ($staff) {
-                    return $staff;
+            // Check if it's an Admin
+            if ($user && $user instanceof Admin) {
+                $request->setUserResolver(function () use ($user) {
+                    return $user;
+                });
+                $request->attributes->set('admin_type', 'admin');
+                $request->attributes->set('user_role', 'admin');
+                return $next($request);
+            }
+            
+            // Check if it's a Staff
+            if ($user && $user instanceof Staff) {
+                $request->setUserResolver(function () use ($user) {
+                    return $user;
                 });
                 $request->attributes->set('admin_type', 'staff');
+                $request->attributes->set('user_role', 'staff');
                 return $next($request);
             }
         }
@@ -53,7 +56,7 @@ class AdminAuth
         // Invalid token
         return response()->json([
             'success' => false,
-            'message' => 'Unauthorized - Invalid token',
+            'message' => 'Unauthorized - Invalid or expired token',
         ], 401);
     }
 }

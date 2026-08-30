@@ -50,7 +50,7 @@ return [
     |
     */
 
-    'expiration' => null,
+    'expiration' => null, // Tokens never expire - admins/staff stay logged in
 
     /*
     |--------------------------------------------------------------------------
