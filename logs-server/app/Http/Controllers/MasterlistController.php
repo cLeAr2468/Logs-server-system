@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Masterlist;
+use App\Models\ActivityLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
@@ -120,6 +121,20 @@ class MasterlistController extends Controller
                 'status' => 'Active',
             ]);
 
+            // Log activity
+            $user = $request->user();
+            if ($user) {
+                ActivityLog::create([
+                    'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
+                    'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
+                    'user_name' => trim($user->fname . ' ' . $user->lname),
+                    'action' => 'created',
+                    'module' => 'Masterlist',
+                    'description' => 'Added student to masterlist: ' . $masterlist->fname . ' ' . $masterlist->lname . ' (' . $masterlist->student_id . ')',
+                    'ip_address' => $request->ip(),
+                ]);
+            }
+
             return response()->json([
                 'success' => true,
                 'message' => 'Student added to masterlist successfully!',
@@ -201,6 +216,20 @@ class MasterlistController extends Controller
                 'status'
             ]));
 
+            // Log activity
+            $user = $request->user();
+            if ($user) {
+                ActivityLog::create([
+                    'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
+                    'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
+                    'user_name' => trim($user->fname . ' ' . $user->lname),
+                    'action' => 'updated',
+                    'module' => 'Masterlist',
+                    'description' => 'Updated masterlist entry: ' . $masterlist->fname . ' ' . $masterlist->lname . ' (' . $masterlist->student_id . ')',
+                    'ip_address' => $request->ip(),
+                ]);
+            }
+
             return response()->json([
                 'success' => true,
                 'message' => 'Masterlist entry updated successfully!',
@@ -221,11 +250,28 @@ class MasterlistController extends Controller
      * @param int $id
      * @return \Illuminate\Http\JsonResponse
      */
-    public function destroy($id)
+    public function destroy(Request $request, $id)
     {
         try {
             $masterlist = Masterlist::findOrFail($id);
+            $studentName = $masterlist->fname . ' ' . $masterlist->lname;
+            $studentId = $masterlist->student_id;
+            
             $masterlist->delete();
+
+            // Log activity
+            $user = $request->user();
+            if ($user) {
+                ActivityLog::create([
+                    'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
+                    'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
+                    'user_name' => trim($user->fname . ' ' . $user->lname),
+                    'action' => 'deleted',
+                    'module' => 'Masterlist',
+                    'description' => 'Deleted masterlist entry: ' . $studentName . ' (' . $studentId . ')',
+                    'ip_address' => $request->ip(),
+                ]);
+            }
 
             return response()->json([
                 'success' => true,
@@ -404,6 +450,20 @@ class MasterlistController extends Controller
                 // None imported
                 $message = "No records were imported. Please check your CSV file.";
                 $success = false;
+            }
+
+            // Log activity
+            $user = $request->user();
+            if ($user && $imported > 0) {
+                ActivityLog::create([
+                    'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
+                    'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
+                    'user_name' => trim($user->fname . ' ' . $user->lname),
+                    'action' => 'created',
+                    'module' => 'Masterlist',
+                    'description' => "Imported {$imported} student(s) via CSV upload",
+                    'ip_address' => $request->ip(),
+                ]);
             }
 
             return response()->json([

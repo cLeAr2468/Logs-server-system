@@ -154,6 +154,7 @@ Route::middleware('admin.auth')->group(function () {
     // Activity Logs (admin/staff access - only see their own logs)
     Route::get('/activity-logs', [App\Http\Controllers\ActivityLogController::class, 'index']);
     Route::get('/activity-logs/recent', [App\Http\Controllers\ActivityLogController::class, 'recent']);
+    Route::get('/activity-logs/statistics', [App\Http\Controllers\ActivityLogController::class, 'statistics']);
     Route::delete('/activity-logs/clear', [App\Http\Controllers\ActivityLogController::class, 'clear']);
 });
 

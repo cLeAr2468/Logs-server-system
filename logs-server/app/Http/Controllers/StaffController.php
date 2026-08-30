@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Staff;
+use App\Models\ActivityLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
@@ -147,6 +148,20 @@ class StaffController extends Controller
             // Fetch the created staff
             $staff = Staff::find($staffId);
 
+            // Log activity
+            $user = $request->user();
+            if ($user) {
+                ActivityLog::create([
+                    'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
+                    'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
+                    'user_name' => trim($user->fname . ' ' . $user->lname),
+                    'action' => 'created',
+                    'module' => 'Staff',
+                    'description' => 'Registered new staff: ' . $staff->fname . ' ' . $staff->lname . ' (' . $staff->staff_id . ')',
+                    'ip_address' => $request->ip(),
+                ]);
+            }
+
             return response()->json([
                 'success' => true,
                 'message' => 'Staff member registered successfully!',
@@ -214,6 +229,20 @@ class StaffController extends Controller
                 $staff->refresh();
             }
 
+            // Log activity
+            $user = $request->user();
+            if ($user) {
+                ActivityLog::create([
+                    'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
+                    'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
+                    'user_name' => trim($user->fname . ' ' . $user->lname),
+                    'action' => 'updated',
+                    'module' => 'Staff',
+                    'description' => 'Updated staff: ' . $staff->fname . ' ' . $staff->lname . ' (' . $staff->staff_id . ')',
+                    'ip_address' => $request->ip(),
+                ]);
+            }
+
             return response()->json([
                 'success' => true,
                 'message' => 'Staff member updated successfully!',
@@ -234,11 +263,28 @@ class StaffController extends Controller
      * @param int $id
      * @return \Illuminate\Http\JsonResponse
      */
-    public function destroy($id)
+    public function destroy(Request $request, $id)
     {
         try {
             $staff = Staff::findOrFail($id);
+            $staffName = $staff->fname . ' ' . $staff->lname;
+            $staffId = $staff->staff_id;
+            
             $staff->delete();
+
+            // Log activity
+            $user = $request->user();
+            if ($user) {
+                ActivityLog::create([
+                    'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
+                    'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
+                    'user_name' => trim($user->fname . ' ' . $user->lname),
+                    'action' => 'deleted',
+                    'module' => 'Staff',
+                    'description' => 'Deleted staff: ' . $staffName . ' (' . $staffId . ')',
+                    'ip_address' => $request->ip(),
+                ]);
+            }
 
             return response()->json([
                 'success' => true,

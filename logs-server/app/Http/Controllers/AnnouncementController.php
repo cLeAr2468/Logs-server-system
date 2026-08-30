@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Announcement;
+use App\Models\ActivityLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 
@@ -126,6 +127,17 @@ class AnnouncementController extends Controller
             $announcement = Announcement::create($data);
             $announcement->load('staff:id,staff_id,fname,mname,lname,email');
 
+            // Log activity
+            ActivityLog::create([
+                'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
+                'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
+                'user_name' => trim($user->fname . ' ' . $user->lname),
+                'action' => 'created',
+                'module' => 'Announcement',
+                'description' => 'Created announcement: ' . $announcement->title,
+                'ip_address' => $request->ip(),
+            ]);
+
             return response()->json([
                 'success' => true,
                 'message' => $request->status === 'published' 
@@ -200,6 +212,18 @@ class AnnouncementController extends Controller
         $announcement->save();
         $announcement->load('staff:id,staff_id,fname,mname,lname,email');
 
+        // Log activity
+        $user = $request->user();
+        ActivityLog::create([
+            'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
+            'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
+            'user_name' => trim($user->fname . ' ' . $user->lname),
+            'action' => 'updated',
+            'module' => 'Announcement',
+            'description' => 'Updated announcement: ' . $announcement->title,
+            'ip_address' => $request->ip(),
+        ]);
+
         return response()->json([
             'message' => 'Announcement updated successfully',
             'announcement' => $announcement
@@ -209,9 +233,10 @@ class AnnouncementController extends Controller
     /**
      * Delete announcement
      */
-    public function destroy($id)
+    public function destroy(Request $request, $id)
     {
         $announcement = Announcement::findOrFail($id);
+        $title = $announcement->title;
 
         // Delete image if exists
         if ($announcement->cover_image) {
@@ -219,6 +244,18 @@ class AnnouncementController extends Controller
         }
 
         $announcement->delete();
+
+        // Log activity
+        $user = $request->user();
+        ActivityLog::create([
+            'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
+            'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
+            'user_name' => trim($user->fname . ' ' . $user->lname),
+            'action' => 'deleted',
+            'module' => 'Announcement',
+            'description' => 'Deleted announcement: ' . $title,
+            'ip_address' => $request->ip(),
+        ]);
 
         return response()->json([
             'message' => 'Announcement deleted successfully'

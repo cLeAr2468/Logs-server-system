@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Transaction;
 use App\Models\User;
+use App\Models\ActivityLog;
 use App\Mail\TransactionStatusMail;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
@@ -290,6 +291,21 @@ class TransactionController extends Controller
         $transaction->status = $newStatus;
         $transaction->save();
 
+        // Log activity (admin/staff status update)
+        $user = $request->user();
+        if ($user && ($user instanceof \App\Models\Admin || $user instanceof \App\Models\Staff)) {
+            $studentName = $transaction->user->fname . ' ' . $transaction->user->lname;
+            ActivityLog::create([
+                'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
+                'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
+                'user_name' => trim($user->fname . ' ' . $user->lname),
+                'action' => 'updated',
+                'module' => 'Transaction',
+                'description' => "Updated transaction status to '{$newStatus}' for student: {$studentName} ({$transaction->user->student_id})",
+                'ip_address' => $request->ip(),
+            ]);
+        }
+
         return response()->json([
             'message' => 'Transaction status updated successfully',
             'transaction' => $transaction,
@@ -330,9 +346,9 @@ class TransactionController extends Controller
     /**
      * Delete a transaction (admin only)
      */
-    public function destroy($id)
+    public function destroy(Request $request, $id)
     {
-        $transaction = Transaction::find($id);
+        $transaction = Transaction::with('user')->find($id);
 
         if (!$transaction) {
             return response()->json([
@@ -340,7 +356,25 @@ class TransactionController extends Controller
             ], 404);
         }
 
+        $studentName = $transaction->user->fname . ' ' . $transaction->user->lname;
+        $studentId = $transaction->user->student_id;
+        $purpose = $transaction->purpose;
+
         $transaction->delete();
+
+        // Log activity (admin/staff deleted transaction)
+        $user = $request->user();
+        if ($user && ($user instanceof \App\Models\Admin || $user instanceof \App\Models\Staff)) {
+            ActivityLog::create([
+                'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
+                'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
+                'user_name' => trim($user->fname . ' ' . $user->lname),
+                'action' => 'deleted',
+                'module' => 'Transaction',
+                'description' => "Deleted transaction for student: {$studentName} ({$studentId}) - Purpose: {$purpose}",
+                'ip_address' => $request->ip(),
+            ]);
+        }
 
         return response()->json([
             'message' => 'Transaction deleted successfully'
@@ -494,6 +528,21 @@ class TransactionController extends Controller
 
         // Load the user relationship
         $transaction->load('user');
+
+        // Log activity (admin/staff created transaction)
+        $authUser = $request->user();
+        if ($authUser && ($authUser instanceof \App\Models\Admin || $authUser instanceof \App\Models\Staff)) {
+            $studentName = $user->fname . ' ' . $user->lname;
+            ActivityLog::create([
+                'user_type' => $authUser instanceof \App\Models\Admin ? 'admin' : 'staff',
+                'user_id' => $authUser instanceof \App\Models\Admin ? $authUser->admin_id : $authUser->staff_id,
+                'user_name' => trim($authUser->fname . ' ' . $authUser->lname),
+                'action' => 'created',
+                'module' => 'Transaction',
+                'description' => "Created transaction for student: {$studentName} ({$user->student_id}) - Purpose: {$transaction->purpose}",
+                'ip_address' => $request->ip(),
+            ]);
+        }
 
         return response()->json([
             'message' => 'Transaction created successfully with Processing status',

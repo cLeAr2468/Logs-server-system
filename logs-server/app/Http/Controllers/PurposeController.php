@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Purpose;
+use App\Models\ActivityLog;
 use Illuminate\Http\Request;
 
 class PurposeController extends Controller
@@ -30,6 +31,18 @@ class PurposeController extends Controller
 
         $purpose = Purpose::create([
             'name' => $request->name,
+        ]);
+
+        // Log activity
+        $user = $request->user();
+        ActivityLog::create([
+            'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
+            'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
+            'user_name' => trim($user->fname . ' ' . $user->lname),
+            'action' => 'created',
+            'module' => 'Purpose',
+            'description' => 'Created new purpose: ' . $purpose->name,
+            'ip_address' => $request->ip(),
         ]);
 
         return response()->json([
@@ -76,6 +89,18 @@ class PurposeController extends Controller
         $purpose->name = $request->name;
         $purpose->save();
 
+        // Log activity
+        $user = $request->user();
+        ActivityLog::create([
+            'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
+            'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
+            'user_name' => trim($user->fname . ' ' . $user->lname),
+            'action' => 'updated',
+            'module' => 'Purpose',
+            'description' => 'Updated purpose: ' . $purpose->name,
+            'ip_address' => $request->ip(),
+        ]);
+
         return response()->json([
             'message' => 'Purpose updated successfully',
             'purpose' => $purpose
@@ -85,7 +110,7 @@ class PurposeController extends Controller
     /**
      * Remove the specified purpose
      */
-    public function destroy($id)
+    public function destroy(Request $request, $id)
     {
         $purpose = Purpose::find($id);
 
@@ -104,7 +129,20 @@ class PurposeController extends Controller
             ], 400);
         }
 
+        $purposeName = $purpose->name;
         $purpose->delete();
+
+        // Log activity
+        $user = $request->user();
+        ActivityLog::create([
+            'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
+            'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
+            'user_name' => trim($user->fname . ' ' . $user->lname),
+            'action' => 'deleted',
+            'module' => 'Purpose',
+            'description' => 'Deleted purpose: ' . $purposeName,
+            'ip_address' => $request->ip(),
+        ]);
 
         return response()->json([
             'message' => 'Purpose deleted successfully'

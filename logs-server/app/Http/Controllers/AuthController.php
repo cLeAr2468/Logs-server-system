@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Models\ActivityLog;
 use App\Models\PasswordResetToken;
 use App\Mail\SendOtpMail;
 use Illuminate\Http\Request;
@@ -143,6 +144,17 @@ class AuthController extends Controller
 
         // simple token (Sanctum not required for basic setup)
         $token = $user->createToken('auth_token')->plainTextToken;
+
+        // Log client login activity
+        ActivityLog::create([
+            'user_type' => 'client',
+            'user_id' => $user->student_id,
+            'user_name' => trim($user->fname . ' ' . $user->lname),
+            'action' => 'logged_in',
+            'module' => 'Authentication',
+            'description' => 'Client logged in',
+            'ip_address' => $request->ip(),
+        ]);
 
         return response()->json([
             'message' => 'Login successful',
@@ -395,6 +407,21 @@ class AuthController extends Controller
     // LOGOUT
     public function logout(Request $request)
     {
+        $user = $request->user();
+        
+        // Log client logout activity
+        if ($user instanceof User) {
+            ActivityLog::create([
+                'user_type' => 'client',
+                'user_id' => $user->student_id,
+                'user_name' => trim($user->fname . ' ' . $user->lname),
+                'action' => 'logged_out',
+                'module' => 'Authentication',
+                'description' => 'Client logged out',
+                'ip_address' => $request->ip(),
+            ]);
+        }
+        
         $request->user()->currentAccessToken()->delete();
 
         return response()->json([
