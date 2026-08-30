@@ -43,11 +43,11 @@ class MasterlistController extends Controller
         try {
             // Validate the request
             $validator = Validator::make($request->all(), [
-                'student_id' => 'required|string|unique:masterlist,student_id',
+                'student_id' => 'required|string',
                 'fname' => 'required|string|max:255',
                 'mname' => 'nullable|string|max:255',
                 'lname' => 'required|string|max:255',
-                'email' => 'required|email|unique:masterlist,email',
+                'email' => 'required|email',
                 'course' => 'required|string',
                 'year_level' => 'required|string',
             ]);
@@ -57,6 +57,54 @@ class MasterlistController extends Controller
                     'success' => false,
                     'message' => 'Validation failed',
                     'errors' => $validator->errors(),
+                ], 422);
+            }
+
+            // Check if student_id already exists in masterlist
+            if (Masterlist::where('student_id', $request->student_id)->exists()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'This Student ID already exists in masterlist',
+                ], 422);
+            }
+
+            // Check if student_id exists in users table (registered clients)
+            if (\App\Models\User::where('student_id', $request->student_id)->exists()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'This Student ID is already registered as a client account',
+                ], 422);
+            }
+
+            // Check if student_id exists in staff table
+            if (\App\Models\Staff::where('staff_id', $request->student_id)->exists()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'This ID is already used as a staff ID',
+                ], 422);
+            }
+
+            // Check if email already exists in masterlist
+            if (Masterlist::where('email', $request->email)->exists()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'This email already exists in masterlist',
+                ], 422);
+            }
+
+            // Check if email exists in users table
+            if (\App\Models\User::where('email', $request->email)->exists()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'This email is already registered as a client account',
+                ], 422);
+            }
+
+            // Check if email exists in staff table
+            if (\App\Models\Staff::where('email', $request->email)->exists()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'This email is already registered as a staff account',
                 ], 422);
             }
 

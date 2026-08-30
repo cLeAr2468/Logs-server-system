@@ -150,6 +150,11 @@ Route::middleware('admin.auth')->group(function () {
     Route::get('/admin/dashboard/recent-transactions', [DashboardController::class, 'getRecentTransactions']);
     Route::get('/admin/dashboard/all-transactions', [DashboardController::class, 'getAllRecentTransactions']);
     Route::get('/admin/dashboard/performance', [DashboardController::class, 'getPerformanceSummary']);
+    
+    // Activity Logs (admin/staff access - only see their own logs)
+    Route::get('/activity-logs', [App\Http\Controllers\ActivityLogController::class, 'index']);
+    Route::get('/activity-logs/recent', [App\Http\Controllers\ActivityLogController::class, 'recent']);
+    Route::delete('/activity-logs/clear', [App\Http\Controllers\ActivityLogController::class, 'clear']);
 });
 
 // PUBLIC ANNOUNCEMENT ROUTES (No authentication required)

@@ -40,11 +40,11 @@ class AuthController extends Controller
     public function register(Request $request)
     {
         $request->validate([
-            'student_id' => 'required|unique:users',
+            'student_id' => 'required',
             'fname' => 'required',
             'mname' => 'nullable',
             'lname' => 'required',
-            'email' => 'required|email|unique:users',
+            'email' => 'required|email',
             'barangay' => 'required|string|max:255',
             'municipality' => 'required|string|max:255',
             'province' => 'required|string|max:255',
@@ -62,10 +62,35 @@ class AuthController extends Controller
             ], 400);
         }
 
-        // Verify that the student's information matches the masterlist
-        // Optional: You can add more validation here if needed
-        // For example, check if names match
+        // Check if student_id already registered in users table
+        if (User::where('student_id', $request->student_id)->exists()) {
+            return response()->json([
+                'message' => 'This Student ID is already registered. Please login instead.'
+            ], 422);
+        }
 
+        // Check if student_id exists in staff table
+        if (\App\Models\Staff::where('staff_id', $request->student_id)->exists()) {
+            return response()->json([
+                'message' => 'This ID is registered as a staff ID. Please use your staff account.'
+            ], 422);
+        }
+
+        // Check if email already registered in users table
+        if (User::where('email', $request->email)->exists()) {
+            return response()->json([
+                'message' => 'This email is already registered. Please login instead.'
+            ], 422);
+        }
+
+        // Check if email exists in staff table
+        if (\App\Models\Staff::where('email', $request->email)->exists()) {
+            return response()->json([
+                'message' => 'This email is registered as a staff email. Please use your staff account.'
+            ], 422);
+        }
+
+        // Create user account
         $user = User::create([
             'student_id' => $request->student_id,
             'fname' => $request->fname,
@@ -77,7 +102,7 @@ class AuthController extends Controller
             'province' => $request->province,
             'course' => $request->course,
             'year_level' => $request->year_level,
-            'status' => 'Active', // Automatically set status to Active
+            'status' => 'Active',
             'password' => Hash::make($request->password),
         ]);
 

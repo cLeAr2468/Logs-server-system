@@ -83,6 +83,18 @@ class AdminController extends Controller
                     // Generate token for admin
                     $token = $admin->createToken('admin-token')->plainTextToken;
 
+                    // Log admin login activity
+                    \App\Models\ActivityLog::log(
+                        'admin',
+                        $admin->id,
+                        $admin->full_name,
+                        'logged_in',
+                        'authentication',
+                        'Admin logged in successfully',
+                        ['email' => $admin->email],
+                        $request
+                    );
+
                     return response()->json([
                         'success' => true,
                         'message' => 'Admin login successful',
@@ -121,6 +133,18 @@ class AdminController extends Controller
                 if (Hash::check($password, $staff->password)) {
                     // Generate token for staff
                     $token = $staff->createToken('admin-staff-token')->plainTextToken;
+
+                    // Log staff login activity
+                    \App\Models\ActivityLog::log(
+                        'staff',
+                        $staff->id,
+                        trim("{$staff->fname} {$staff->mname} {$staff->lname}"),
+                        'logged_in',
+                        'authentication',
+                        'Staff logged in successfully',
+                        ['email' => $staff->email, 'staff_id' => $staff->staff_id],
+                        $request
+                    );
 
                     return response()->json([
                         'success' => true,
@@ -177,9 +201,25 @@ class AdminController extends Controller
     public function logout(Request $request)
     {
         try {
-            // For default admin (token is just encoded string), no token to revoke
-            // For staff, revoke the token
-            if ($request->user()) {
+            $user = $request->user();
+            
+            // Log logout activity before deleting token
+            if ($user) {
+                $userType = $user instanceof \App\Models\Admin ? 'admin' : 'staff';
+                $userName = $user->full_name ?? trim("{$user->fname} {$user->mname} {$user->lname}");
+                
+                \App\Models\ActivityLog::log(
+                    $userType,
+                    $user->id,
+                    $userName,
+                    'logged_out',
+                    'authentication',
+                    ucfirst($userType) . ' logged out successfully',
+                    ['email' => $user->email],
+                    $request
+                );
+                
+                // Revoke the token
                 $request->user()->currentAccessToken()->delete();
             }
 
