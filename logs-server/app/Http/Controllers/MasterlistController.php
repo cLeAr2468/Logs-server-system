@@ -464,17 +464,23 @@ class MasterlistController extends Controller
             }
 
             // Log activity only if records were actually imported
+            // Wrap in try-catch to prevent activity log errors from failing the import
             $user = $request->user();
             if ($user && $imported > 0) {
-                ActivityLog::create([
-                    'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
-                    'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
-                    'user_name' => trim($user->fname . ' ' . $user->lname),
-                    'action' => 'created',
-                    'module' => 'Masterlist',
-                    'description' => "Imported {$imported} student(s) via CSV upload",
-                    'ip_address' => $request->ip(),
-                ]);
+                try {
+                    ActivityLog::create([
+                        'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
+                        'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
+                        'user_name' => trim($user->fname . ' ' . $user->lname),
+                        'action' => 'created',
+                        'module' => 'Masterlist',
+                        'description' => "Imported {$imported} student(s) via CSV upload",
+                        'ip_address' => $request->ip(),
+                    ]);
+                } catch (\Exception $logError) {
+                    // Silently fail activity logging - don't break the import
+                    \Log::error('Activity log failed during CSV import: ' . $logError->getMessage());
+                }
             }
 
             return response()->json([
