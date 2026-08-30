@@ -14,6 +14,7 @@ return new class extends Migration
     {
         Schema::create('admins', function (Blueprint $table) {
             $table->id();
+            $table->string('admin_id')->unique();
             $table->string('fname');
             $table->string('mname')->nullable();
             $table->string('lname');
@@ -25,11 +26,12 @@ return new class extends Migration
 
         // Insert default admin account
         DB::table('admins')->insert([
+            'admin_id' => 'ADMIN-001',
             'fname' => 'System',
             'mname' => '',
             'lname' => 'Administrator',
             'email' => 'admin@nwssu.edu.ph',
-            'password' => Hash::make('admin'),
+            'password' => Hash::make('admin123'),
             'status' => 'Active',
             'created_at' => now(),
             'updated_at' => now(),

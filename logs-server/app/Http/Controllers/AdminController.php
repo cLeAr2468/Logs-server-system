@@ -89,6 +89,7 @@ class AdminController extends Controller
                         'token' => $token,
                         'user' => [
                             'id' => $admin->id,
+                            'admin_id' => $admin->admin_id,
                             'email' => $admin->email,
                             'role' => 'admin',
                             'fname' => $admin->fname,
@@ -215,6 +216,7 @@ class AdminController extends Controller
                     'success' => true,
                     'user' => [
                         'id' => $user->id,
+                        'admin_id' => $user->admin_id,
                         'email' => $user->email,
                         'role' => 'admin',
                         'firstname' => $user->fname,
@@ -328,6 +330,7 @@ class AdminController extends Controller
                     'message' => 'Profile updated successfully',
                     'user' => [
                         'id' => $user->id,
+                        'admin_id' => $user->admin_id,
                         'email' => $user->email,
                         'role' => 'admin',
                         'firstname' => $user->fname,

@@ -18,6 +18,7 @@ class AdminSeeder extends Seeder
         
         if (!$existingAdmin) {
             DB::table('admins')->insert([
+                'admin_id' => 'ADMIN-001',
                 'fname' => 'System',
                 'mname' => '',
                 'lname' => 'Administrator',
@@ -29,6 +30,7 @@ class AdminSeeder extends Seeder
             ]);
 
             $this->command->info('Admin account created successfully!');
+            $this->command->info('Admin ID: ADMIN-001');
             $this->command->info('Email: admin@nwssu.edu.ph');
             $this->command->info('Password: admin123');
         } else {
