@@ -6,7 +6,14 @@ return [
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => ['*'],
+    'allowed_origins' => [
+        'http://localhost:5173',
+        'http://localhost:5174', 
+        'http://localhost:5175',
+        // Add your production frontend URLs here after deployment
+        env('FRONTEND_URL', ''),
+        env('CLIENT_URL', ''),
+    ],
 
     'allowed_origins_patterns' => [
         // Allow all Vercel preview deployments

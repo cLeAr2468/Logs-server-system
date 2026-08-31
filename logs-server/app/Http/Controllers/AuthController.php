@@ -10,7 +10,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
-use Illuminate\Support\Str;
 
 class AuthController extends Controller
 {
@@ -144,16 +143,10 @@ class AuthController extends Controller
                 ], 401);
             }
 
-            // Create token with fallback
-            $token = null;
-            try {
-                $token = $user->createToken('auth_token')->plainTextToken;
-            } catch (\Exception $e) {
-                \Log::warning('Token creation failed, using fallback', ['error' => $e->getMessage()]);
-                $token = base64_encode($user->id . '|' . time() . '|' . Str::random(40));
-            }
+            // Create token
+            $token = $user->createToken('auth_token')->plainTextToken;
 
-            // Try to log activity (non-blocking)
+            // Log client login activity (non-blocking)
             try {
                 ActivityLog::create([
                     'user_type' => 'client',
@@ -165,7 +158,7 @@ class AuthController extends Controller
                     'ip_address' => $request->ip(),
                 ]);
             } catch (\Exception $e) {
-                \Log::warning('Activity log failed', ['error' => $e->getMessage()]);
+                \Log::warning('Failed to log activity', ['error' => $e->getMessage()]);
             }
 
             return response()->json([
@@ -195,8 +188,7 @@ class AuthController extends Controller
             ]);
             
             return response()->json([
-                'message' => 'An error occurred during login',
-                'error' => config('app.debug') ? $e->getMessage() : null
+                'message' => 'Login failed. Please try again.'
             ], 500);
         }
     }
