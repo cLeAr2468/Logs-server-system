@@ -58,6 +58,9 @@ class AnnouncementController extends Controller
      */
     public function store(Request $request)
     {
+        // Start transaction
+        \DB::beginTransaction();
+        
         try {
             $request->validate([
                 'title' => 'required|string|max:255',
@@ -127,16 +130,24 @@ class AnnouncementController extends Controller
             $announcement = Announcement::create($data);
             $announcement->load('staff:id,staff_id,fname,mname,lname,email');
 
-            // Log activity
-            ActivityLog::create([
-                'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
-                'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
-                'user_name' => trim($user->fname . ' ' . $user->lname),
-                'action' => 'created',
-                'module' => 'Announcement',
-                'description' => 'Created announcement: ' . $announcement->title,
-                'ip_address' => $request->ip(),
-            ]);
+            // Log activity (wrapped in try-catch to prevent logging errors from failing the operation)
+            try {
+                ActivityLog::create([
+                    'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
+                    'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
+                    'user_name' => trim($user->fname . ' ' . $user->lname),
+                    'action' => 'created',
+                    'module' => 'Announcement',
+                    'description' => 'Created announcement: ' . $announcement->title,
+                    'ip_address' => $request->ip(),
+                ]);
+            } catch (\Exception $logError) {
+                // Silently fail activity logging - don't break the operation
+                \Log::error('Activity log failed during announcement creation: ' . $logError->getMessage());
+            }
+
+            // Commit transaction
+            \DB::commit();
 
             return response()->json([
                 'success' => true,
@@ -147,12 +158,18 @@ class AnnouncementController extends Controller
             ], 201);
             
         } catch (\Illuminate\Validation\ValidationException $e) {
+            // Rollback on validation error
+            \DB::rollBack();
+            
             return response()->json([
                 'success' => false,
                 'message' => 'Validation failed',
                 'errors' => $e->errors(),
             ], 422);
         } catch (\Exception $e) {
+            // Rollback on any exception
+            \DB::rollBack();
+            
             \Log::error('Create announcement error', [
                 'message' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
@@ -171,63 +188,85 @@ class AnnouncementController extends Controller
      */
     public function update(Request $request, $id)
     {
-        $announcement = Announcement::findOrFail($id);
+        // Start transaction
+        \DB::beginTransaction();
+        
+        try {
+            $announcement = Announcement::findOrFail($id);
 
-        $request->validate([
-            'title' => 'sometimes|required|string|max:255',
-            'content' => 'sometimes|required|string',
-            'cover_image' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
-            'status' => 'sometimes|required|in:draft,published,archive',
-        ]);
+            $request->validate([
+                'title' => 'sometimes|required|string|max:255',
+                'content' => 'sometimes|required|string',
+                'cover_image' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
+                'status' => 'sometimes|required|in:draft,published,archive',
+            ]);
 
-        // Update fields
-        if ($request->has('title')) {
-            $announcement->title = $request->title;
-        }
-        if ($request->has('content')) {
-            $announcement->content = $request->content;
-        }
-
-        // Handle image upload
-        if ($request->hasFile('cover_image')) {
-            // Delete old image if exists
-            if ($announcement->cover_image) {
-                Storage::disk('public')->delete($announcement->cover_image);
+            // Update fields
+            if ($request->has('title')) {
+                $announcement->title = $request->title;
             }
-            $path = $request->file('cover_image')->store('announcements', 'public');
-            $announcement->cover_image = $path;
-        }
+            if ($request->has('content')) {
+                $announcement->content = $request->content;
+            }
 
-        // Update status and published_at
-        if ($request->has('status')) {
-            $oldStatus = $announcement->status;
-            $announcement->status = $request->status;
+            // Handle image upload
+            if ($request->hasFile('cover_image')) {
+                // Delete old image if exists
+                if ($announcement->cover_image) {
+                    Storage::disk('public')->delete($announcement->cover_image);
+                }
+                $path = $request->file('cover_image')->store('announcements', 'public');
+                $announcement->cover_image = $path;
+            }
+
+            // Update status and published_at
+            if ($request->has('status')) {
+                $oldStatus = $announcement->status;
+                $announcement->status = $request->status;
+                
+                // Set published_at when changing from draft to published
+                if ($oldStatus === 'draft' && $request->status === 'published') {
+                    $announcement->published_at = now();
+                }
+            }
+
+            $announcement->save();
+            $announcement->load('staff:id,staff_id,fname,mname,lname,email');
+
+            // Log activity (wrapped in try-catch to prevent logging errors from failing the operation)
+            $user = $request->user();
+            try {
+                ActivityLog::create([
+                    'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
+                    'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
+                    'user_name' => trim($user->fname . ' ' . $user->lname),
+                    'action' => 'updated',
+                    'module' => 'Announcement',
+                    'description' => 'Updated announcement: ' . $announcement->title,
+                    'ip_address' => $request->ip(),
+                ]);
+            } catch (\Exception $logError) {
+                // Silently fail activity logging - don't break the operation
+                \Log::error('Activity log failed during announcement update: ' . $logError->getMessage());
+            }
+
+            // Commit transaction
+            \DB::commit();
+
+            return response()->json([
+                'message' => 'Announcement updated successfully',
+                'announcement' => $announcement
+            ]);
+        } catch (\Exception $e) {
+            // Rollback on any exception
+            \DB::rollBack();
             
-            // Set published_at when changing from draft to published
-            if ($oldStatus === 'draft' && $request->status === 'published') {
-                $announcement->published_at = now();
-            }
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to update announcement',
+                'error' => $e->getMessage(),
+            ], 500);
         }
-
-        $announcement->save();
-        $announcement->load('staff:id,staff_id,fname,mname,lname,email');
-
-        // Log activity
-        $user = $request->user();
-        ActivityLog::create([
-            'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
-            'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
-            'user_name' => trim($user->fname . ' ' . $user->lname),
-            'action' => 'updated',
-            'module' => 'Announcement',
-            'description' => 'Updated announcement: ' . $announcement->title,
-            'ip_address' => $request->ip(),
-        ]);
-
-        return response()->json([
-            'message' => 'Announcement updated successfully',
-            'announcement' => $announcement
-        ]);
     }
 
     /**
@@ -235,31 +274,53 @@ class AnnouncementController extends Controller
      */
     public function destroy(Request $request, $id)
     {
-        $announcement = Announcement::findOrFail($id);
-        $title = $announcement->title;
+        // Start transaction
+        \DB::beginTransaction();
+        
+        try {
+            $announcement = Announcement::findOrFail($id);
+            $title = $announcement->title;
 
-        // Delete image if exists
-        if ($announcement->cover_image) {
-            Storage::disk('public')->delete($announcement->cover_image);
+            // Delete image if exists
+            if ($announcement->cover_image) {
+                Storage::disk('public')->delete($announcement->cover_image);
+            }
+
+            $announcement->delete();
+
+            // Log activity (wrapped in try-catch to prevent logging errors from failing the operation)
+            $user = $request->user();
+            try {
+                ActivityLog::create([
+                    'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
+                    'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
+                    'user_name' => trim($user->fname . ' ' . $user->lname),
+                    'action' => 'deleted',
+                    'module' => 'Announcement',
+                    'description' => 'Deleted announcement: ' . $title,
+                    'ip_address' => $request->ip(),
+                ]);
+            } catch (\Exception $logError) {
+                // Silently fail activity logging - don't break the operation
+                \Log::error('Activity log failed during announcement deletion: ' . $logError->getMessage());
+            }
+
+            // Commit transaction
+            \DB::commit();
+
+            return response()->json([
+                'message' => 'Announcement deleted successfully'
+            ]);
+        } catch (\Exception $e) {
+            // Rollback on any exception
+            \DB::rollBack();
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to delete announcement',
+                'error' => $e->getMessage(),
+            ], 500);
         }
-
-        $announcement->delete();
-
-        // Log activity
-        $user = $request->user();
-        ActivityLog::create([
-            'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
-            'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
-            'user_name' => trim($user->fname . ' ' . $user->lname),
-            'action' => 'deleted',
-            'module' => 'Announcement',
-            'description' => 'Deleted announcement: ' . $title,
-            'ip_address' => $request->ip(),
-        ]);
-
-        return response()->json([
-            'message' => 'Announcement deleted successfully'
-        ]);
     }
 
     /**

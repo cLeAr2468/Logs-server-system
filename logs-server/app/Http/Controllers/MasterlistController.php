@@ -41,6 +41,9 @@ class MasterlistController extends Controller
      */
     public function store(Request $request)
     {
+        // Start transaction
+        \DB::beginTransaction();
+        
         try {
             // Validate the request
             $validator = Validator::make($request->all(), [
@@ -121,19 +124,27 @@ class MasterlistController extends Controller
                 'status' => 'Active',
             ]);
 
-            // Log activity
+            // Log activity (wrapped in try-catch to prevent logging errors from failing the operation)
             $user = $request->user();
             if ($user) {
-                ActivityLog::create([
-                    'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
-                    'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
-                    'user_name' => trim($user->fname . ' ' . $user->lname),
-                    'action' => 'created',
-                    'module' => 'Masterlist',
-                    'description' => 'Added student to masterlist: ' . $masterlist->fname . ' ' . $masterlist->lname . ' (' . $masterlist->student_id . ')',
-                    'ip_address' => $request->ip(),
-                ]);
+                try {
+                    ActivityLog::create([
+                        'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
+                        'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
+                        'user_name' => trim($user->fname . ' ' . $user->lname),
+                        'action' => 'created',
+                        'module' => 'Masterlist',
+                        'description' => 'Added student to masterlist: ' . $masterlist->fname . ' ' . $masterlist->lname . ' (' . $masterlist->student_id . ')',
+                        'ip_address' => $request->ip(),
+                    ]);
+                } catch (\Exception $logError) {
+                    // Silently fail activity logging - don't break the operation
+                    \Log::error('Activity log failed during masterlist creation: ' . $logError->getMessage());
+                }
             }
+
+            // Commit transaction
+            \DB::commit();
 
             return response()->json([
                 'success' => true,
@@ -141,6 +152,9 @@ class MasterlistController extends Controller
                 'data' => $masterlist,
             ], 201);
         } catch (\Exception $e) {
+            // Rollback on any exception
+            \DB::rollBack();
+            
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to add student to masterlist',
@@ -181,6 +195,9 @@ class MasterlistController extends Controller
      */
     public function update(Request $request, $id)
     {
+        // Start transaction
+        \DB::beginTransaction();
+        
         try {
             $masterlist = Masterlist::findOrFail($id);
 
@@ -216,19 +233,27 @@ class MasterlistController extends Controller
                 'status'
             ]));
 
-            // Log activity
+            // Log activity (wrapped in try-catch to prevent logging errors from failing the operation)
             $user = $request->user();
             if ($user) {
-                ActivityLog::create([
-                    'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
-                    'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
-                    'user_name' => trim($user->fname . ' ' . $user->lname),
-                    'action' => 'updated',
-                    'module' => 'Masterlist',
-                    'description' => 'Updated masterlist entry: ' . $masterlist->fname . ' ' . $masterlist->lname . ' (' . $masterlist->student_id . ')',
-                    'ip_address' => $request->ip(),
-                ]);
+                try {
+                    ActivityLog::create([
+                        'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
+                        'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
+                        'user_name' => trim($user->fname . ' ' . $user->lname),
+                        'action' => 'updated',
+                        'module' => 'Masterlist',
+                        'description' => 'Updated masterlist entry: ' . $masterlist->fname . ' ' . $masterlist->lname . ' (' . $masterlist->student_id . ')',
+                        'ip_address' => $request->ip(),
+                    ]);
+                } catch (\Exception $logError) {
+                    // Silently fail activity logging - don't break the operation
+                    \Log::error('Activity log failed during masterlist update: ' . $logError->getMessage());
+                }
             }
+
+            // Commit transaction
+            \DB::commit();
 
             return response()->json([
                 'success' => true,
@@ -236,6 +261,9 @@ class MasterlistController extends Controller
                 'data' => $masterlist,
             ], 200);
         } catch (\Exception $e) {
+            // Rollback on any exception
+            \DB::rollBack();
+            
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to update masterlist entry',
@@ -252,6 +280,9 @@ class MasterlistController extends Controller
      */
     public function destroy(Request $request, $id)
     {
+        // Start transaction
+        \DB::beginTransaction();
+        
         try {
             $masterlist = Masterlist::findOrFail($id);
             $studentName = $masterlist->fname . ' ' . $masterlist->lname;
@@ -259,25 +290,36 @@ class MasterlistController extends Controller
             
             $masterlist->delete();
 
-            // Log activity
+            // Log activity (wrapped in try-catch to prevent logging errors from failing the operation)
             $user = $request->user();
             if ($user) {
-                ActivityLog::create([
-                    'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
-                    'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
-                    'user_name' => trim($user->fname . ' ' . $user->lname),
-                    'action' => 'deleted',
-                    'module' => 'Masterlist',
-                    'description' => 'Deleted masterlist entry: ' . $studentName . ' (' . $studentId . ')',
-                    'ip_address' => $request->ip(),
-                ]);
+                try {
+                    ActivityLog::create([
+                        'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
+                        'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
+                        'user_name' => trim($user->fname . ' ' . $user->lname),
+                        'action' => 'deleted',
+                        'module' => 'Masterlist',
+                        'description' => 'Deleted masterlist entry: ' . $studentName . ' (' . $studentId . ')',
+                        'ip_address' => $request->ip(),
+                    ]);
+                } catch (\Exception $logError) {
+                    // Silently fail activity logging - don't break the operation
+                    \Log::error('Activity log failed during masterlist deletion: ' . $logError->getMessage());
+                }
             }
+
+            // Commit transaction
+            \DB::commit();
 
             return response()->json([
                 'success' => true,
                 'message' => 'Masterlist entry deleted successfully!',
             ], 200);
         } catch (\Exception $e) {
+            // Rollback on any exception
+            \DB::rollBack();
+            
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to delete masterlist entry',
