@@ -33,18 +33,22 @@ class PurposeController extends Controller
             'name' => $request->name,
         ]);
 
-        // Log activity
+        // Log activity (wrapped in try-catch to prevent logging errors from failing the operation)
         $user = $request->user();
-        ActivityLog::create([
-            'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
-            'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
-            'user_name' => trim($user->fname . ' ' . $user->lname),
-            'action' => 'created',
-            'module' => 'Purpose',
-            'description' => 'Created new purpose: ' . $purpose->name,
-            'ip_address' => $request->ip(),
-        ]);
-
+        try {
+            ActivityLog::create([
+                'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
+                'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
+                'user_name' => trim($user->fname . ' ' . $user->lname),
+                'action' => 'created',
+                'module' => 'Purpose',
+                'description' => 'Created new purpose: ' . $purpose->name,
+                'ip_address' => $request->ip(),
+            ]);
+        } catch (\Exception $logError) {
+            // Silently fail activity logging - don't break the operation
+            \Log::error('Activity log failed during purpose creation: ' . $logError->getMessage());
+        }
         return response()->json([
             'message' => 'Purpose created successfully',
             'purpose' => $purpose
@@ -89,18 +93,22 @@ class PurposeController extends Controller
         $purpose->name = $request->name;
         $purpose->save();
 
-        // Log activity
+        // Log activity (wrapped in try-catch to prevent logging errors from failing the operation)
         $user = $request->user();
-        ActivityLog::create([
-            'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
-            'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
-            'user_name' => trim($user->fname . ' ' . $user->lname),
-            'action' => 'updated',
-            'module' => 'Purpose',
-            'description' => 'Updated purpose: ' . $purpose->name,
-            'ip_address' => $request->ip(),
-        ]);
-
+        try {
+            ActivityLog::create([
+                'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
+                'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
+                'user_name' => trim($user->fname . ' ' . $user->lname),
+                'action' => 'updated',
+                'module' => 'Purpose',
+                'description' => 'Updated purpose: ' . $purpose->name,
+                'ip_address' => $request->ip(),
+            ]);
+        } catch (\Exception $logError) {
+            // Silently fail activity logging - don't break the operation
+            \Log::error('Activity log failed during purpose update: ' . $logError->getMessage());
+        }
         return response()->json([
             'message' => 'Purpose updated successfully',
             'purpose' => $purpose
@@ -132,18 +140,22 @@ class PurposeController extends Controller
         $purposeName = $purpose->name;
         $purpose->delete();
 
-        // Log activity
+        // Log activity (wrapped in try-catch to prevent logging errors from failing the operation)
         $user = $request->user();
-        ActivityLog::create([
-            'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
-            'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
-            'user_name' => trim($user->fname . ' ' . $user->lname),
-            'action' => 'deleted',
-            'module' => 'Purpose',
-            'description' => 'Deleted purpose: ' . $purposeName,
-            'ip_address' => $request->ip(),
-        ]);
-
+        try {
+            ActivityLog::create([
+                'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
+                'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
+                'user_name' => trim($user->fname . ' ' . $user->lname),
+                'action' => 'deleted',
+                'module' => 'Purpose',
+                'description' => 'Deleted purpose: ' . $purposeName,
+                'ip_address' => $request->ip(),
+            ]);
+        } catch (\Exception $logError) {
+            // Silently fail activity logging - don't break the operation
+            \Log::error('Activity log failed during purpose deletion: ' . $logError->getMessage());
+        }
         return response()->json([
             'message' => 'Purpose deleted successfully'
         ], 200);

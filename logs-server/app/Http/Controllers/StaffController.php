@@ -148,18 +148,23 @@ class StaffController extends Controller
             // Fetch the created staff
             $staff = Staff::find($staffId);
 
-            // Log activity
+            // Log activity (wrapped in try-catch to prevent logging errors from failing the operation)
             $user = $request->user();
             if ($user) {
-                ActivityLog::create([
-                    'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
-                    'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
-                    'user_name' => trim($user->fname . ' ' . $user->lname),
-                    'action' => 'created',
-                    'module' => 'Staff',
-                    'description' => 'Registered new staff: ' . $staff->fname . ' ' . $staff->lname . ' (' . $staff->staff_id . ')',
-                    'ip_address' => $request->ip(),
-                ]);
+                try {
+                    ActivityLog::create([
+                        'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
+                        'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
+                        'user_name' => trim($user->fname . ' ' . $user->lname),
+                        'action' => 'created',
+                        'module' => 'Staff',
+                        'description' => 'Registered new staff: ' . $staff->fname . ' ' . $staff->lname . ' (' . $staff->staff_id . ')',
+                        'ip_address' => $request->ip(),
+                    ]);
+                } catch (\Exception $logError) {
+                    // Silently fail activity logging - don't break the operation
+                    \Log::error('Activity log failed during staff creation: ' . $logError->getMessage());
+                }
             }
 
             return response()->json([
@@ -229,18 +234,23 @@ class StaffController extends Controller
                 $staff->refresh();
             }
 
-            // Log activity
+            // Log activity (wrapped in try-catch to prevent logging errors from failing the operation)
             $user = $request->user();
             if ($user) {
-                ActivityLog::create([
-                    'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
-                    'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
-                    'user_name' => trim($user->fname . ' ' . $user->lname),
-                    'action' => 'updated',
-                    'module' => 'Staff',
-                    'description' => 'Updated staff: ' . $staff->fname . ' ' . $staff->lname . ' (' . $staff->staff_id . ')',
-                    'ip_address' => $request->ip(),
-                ]);
+                try {
+                    ActivityLog::create([
+                        'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
+                        'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
+                        'user_name' => trim($user->fname . ' ' . $user->lname),
+                        'action' => 'updated',
+                        'module' => 'Staff',
+                        'description' => 'Updated staff: ' . $staff->fname . ' ' . $staff->lname . ' (' . $staff->staff_id . ')',
+                        'ip_address' => $request->ip(),
+                    ]);
+                } catch (\Exception $logError) {
+                    // Silently fail activity logging - don't break the operation
+                    \Log::error('Activity log failed during staff update: ' . $logError->getMessage());
+                }
             }
 
             return response()->json([
@@ -272,18 +282,23 @@ class StaffController extends Controller
             
             $staff->delete();
 
-            // Log activity
+            // Log activity (wrapped in try-catch to prevent logging errors from failing the operation)
             $user = $request->user();
             if ($user) {
-                ActivityLog::create([
-                    'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
-                    'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
-                    'user_name' => trim($user->fname . ' ' . $user->lname),
-                    'action' => 'deleted',
-                    'module' => 'Staff',
-                    'description' => 'Deleted staff: ' . $staffName . ' (' . $staffId . ')',
-                    'ip_address' => $request->ip(),
-                ]);
+                try {
+                    ActivityLog::create([
+                        'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
+                        'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
+                        'user_name' => trim($user->fname . ' ' . $user->lname),
+                        'action' => 'deleted',
+                        'module' => 'Staff',
+                        'description' => 'Deleted staff: ' . $staffName . ' (' . $staffId . ')',
+                        'ip_address' => $request->ip(),
+                    ]);
+                } catch (\Exception $logError) {
+                    // Silently fail activity logging - don't break the operation
+                    \Log::error('Activity log failed during staff deletion: ' . $logError->getMessage());
+                }
             }
 
             return response()->json([
