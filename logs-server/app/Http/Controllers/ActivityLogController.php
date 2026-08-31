@@ -8,6 +8,78 @@ use Illuminate\Http\Request;
 class ActivityLogController extends Controller
 {
     /**
+     * Create a new activity log entry
+     * Can be called by authenticated users (client, staff, admin)
+     */
+    public function store(Request $request)
+    {
+        try {
+            $user = $request->user();
+            
+            if (!$user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized',
+                ], 401);
+            }
+
+            // Validate input
+            $request->validate([
+                'action' => 'required|string|max:255',
+                'module' => 'required|string|max:255',
+                'description' => 'required|string',
+                'metadata' => 'nullable|array',
+            ]);
+
+            // Determine user type and ID
+            if ($user instanceof \App\Models\Admin) {
+                $userType = 'admin';
+                $userId = $user->admin_id;
+                $userName = $user->full_name;
+            } elseif ($user instanceof \App\Models\Staff) {
+                $userType = 'staff';
+                $userId = $user->staff_id;
+                $userName = trim("{$user->fname} {$user->mname} {$user->lname}");
+            } else {
+                // Regular user (client)
+                $userType = 'client';
+                $userId = $user->student_id;
+                $userName = trim("{$user->fname} {$user->mname} {$user->lname}");
+            }
+
+            // Create activity log
+            $log = ActivityLog::create([
+                'user_type' => $userType,
+                'user_id' => $userId,
+                'user_name' => $userName,
+                'action' => $request->action,
+                'module' => $request->module,
+                'description' => $request->description,
+                'metadata' => $request->metadata,
+                'ip_address' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Activity logged successfully',
+                'log' => $log,
+            ], 201);
+        } catch (\Exception $e) {
+            \Log::error('Failed to create activity log', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to log activity',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
      * Get activity logs for the authenticated admin/staff
      * Admin sees ALL logs, Staff sees only their own
      */

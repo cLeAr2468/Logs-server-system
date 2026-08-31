@@ -54,6 +54,9 @@ Route::post('/reset-password', [AuthController::class, 'resetPassword']);
 
 // TRANSACTION/APPOINTMENT ROUTES (Protected - Require Authentication)
 Route::middleware('auth:sanctum')->group(function () {
+    // Activity logging (for all authenticated users)
+    Route::post('/activity-logs', [App\Http\Controllers\ActivityLogController::class, 'store']);
+    
     // User appointment routes
     Route::post('/appointments', [TransactionController::class, 'store']);
     Route::get('/my-appointments', [TransactionController::class, 'getUserTransactions']);
