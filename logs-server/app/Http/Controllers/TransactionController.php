@@ -56,15 +56,14 @@ class TransactionController extends Controller
         // Maximum appointments per time slot
         $maxAppointmentsPerSlot = 5;
 
-        // Check if time slot is already full (limit: 5 appointments per slot)
+        // Check if time slot is already full (limit: 5 appointments per slot - ALL statuses count)
         $slotCount = Transaction::where('schedule_date', $request->schedule_date)
             ->where('time_slot', $request->time_slot)
-            ->whereIn('status', ['pending', 'approved'])
             ->count();
 
         if ($slotCount >= $maxAppointmentsPerSlot) {
             return response()->json([
-                'message' => 'This time slot is fully booked. Please choose another time slot.',
+                'message' => 'This time slot is fully booked (5/5 appointments). Please choose another time slot.',
                 'slot_full' => true
             ], 409); // 409 Conflict
         }
@@ -518,9 +517,8 @@ class TransactionController extends Controller
         // Maximum appointments per time slot
         $maxAppointmentsPerSlot = 5;
 
-        // Get count of appointments for each slot (only pending and approved count toward the limit)
+        // Get count of ALL appointments for each slot (all statuses count toward the limit)
         $slotCounts = Transaction::where('schedule_date', $request->date)
-            ->whereIn('status', ['pending', 'approved'])
             ->select('time_slot', \DB::raw('COUNT(*) as count'))
             ->groupBy('time_slot')
             ->pluck('count', 'time_slot')
@@ -634,10 +632,9 @@ class TransactionController extends Controller
         // Maximum appointments per time slot
         $maxAppointmentsPerSlot = 5;
 
-        // Check if time slot is already full (limit: 5 appointments per slot)
+        // Check if time slot is already full (limit: 5 appointments per slot - ALL statuses count)
         $slotCount = Transaction::where('schedule_date', $request->schedule_date)
             ->where('time_slot', $request->time_slot)
-            ->whereIn('status', ['pending', 'approved'])
             ->count();
 
         if ($slotCount >= $maxAppointmentsPerSlot) {
