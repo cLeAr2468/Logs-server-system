@@ -140,6 +140,9 @@ Route::middleware('admin.auth')->group(function () {
     Route::post('/transactions/validate-student', [TransactionController::class, 'validateStudentId']);
     Route::post('/transactions/create-by-admin', [TransactionController::class, 'storeByAdmin']);
     
+    // Auto-cancel missed appointments (can be called manually or via cron)
+    Route::post('/transactions/auto-cancel-missed', [TransactionController::class, 'autoCancelMissedAppointments']);
+    
     // Reports and Analytics (admin/staff access)
     Route::get('/reports/statistics', [ReportController::class, 'getStatistics']);
     Route::get('/reports/by-purpose', [ReportController::class, 'getTransactionsByPurpose']);
@@ -164,6 +167,10 @@ Route::middleware('admin.auth')->group(function () {
 
 // PUBLIC ANNOUNCEMENT ROUTES (No authentication required)
 Route::get('/public/announcements', [AnnouncementController::class, 'getPublished']);
+
+// PUBLIC CRON JOB ROUTES (No authentication required - for automated tasks)
+// This should be secured with a secret token in production
+Route::post('/cron/auto-cancel-missed-appointments', [TransactionController::class, 'autoCancelMissedAppointments']);
 
 // PURPOSE ROUTES
 // Public route for purposes (for dropdowns in user forms)

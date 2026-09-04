@@ -53,6 +53,22 @@ class TransactionController extends Controller
             'time_slot' => 'required|string',
         ]);
 
+        // Maximum appointments per time slot
+        $maxAppointmentsPerSlot = 5;
+
+        // Check if time slot is already full (limit: 5 appointments per slot)
+        $slotCount = Transaction::where('schedule_date', $request->schedule_date)
+            ->where('time_slot', $request->time_slot)
+            ->whereIn('status', ['pending', 'approved'])
+            ->count();
+
+        if ($slotCount >= $maxAppointmentsPerSlot) {
+            return response()->json([
+                'message' => 'This time slot is fully booked. Please choose another time slot.',
+                'slot_full' => true
+            ], 409); // 409 Conflict
+        }
+
         // Check if user already has a pending or approved appointment with the same purpose
         $existingPurposeAppointment = Transaction::where('user_id', $request->user()->id)
             ->where('purpose', $request->purpose)
@@ -382,6 +398,92 @@ class TransactionController extends Controller
     }
 
     /**
+     * Auto-cancel missed appointments
+     * This function cancels all approved appointments that are past their scheduled date/time
+     * Can be called via cron job or manually
+     */
+    public function autoCancelMissedAppointments()
+    {
+        try {
+            $now = now();
+            $today = $now->format('Y-m-d');
+            $currentTime = $now->format('h:i A');
+
+            // Get all approved appointments with past dates
+            $missedAppointments = Transaction::where('status', 'approved')
+                ->where(function($query) use ($today, $currentTime) {
+                    // Appointments from previous dates
+                    $query->where('schedule_date', '<', $today)
+                        // OR appointments from today but past time slots
+                        ->orWhere(function($q) use ($today, $currentTime) {
+                            $q->where('schedule_date', '=', $today)
+                              ->where('time_slot', '<', $currentTime);
+                        });
+                })
+                ->get();
+
+            $cancelledCount = 0;
+            $cancelledAppointments = [];
+
+            foreach ($missedAppointments as $appointment) {
+                // Update status to cancelled
+                $appointment->status = 'cancelled';
+                $appointment->save();
+
+                $cancelledCount++;
+                $cancelledAppointments[] = [
+                    'id' => $appointment->id,
+                    'student_id' => $appointment->user->student_id ?? 'N/A',
+                    'student_name' => ($appointment->user->fname ?? '') . ' ' . ($appointment->user->lname ?? ''),
+                    'schedule_date' => $appointment->schedule_date,
+                    'time_slot' => $appointment->time_slot,
+                    'purpose' => $appointment->purpose,
+                ];
+
+                // Log the auto-cancellation
+                try {
+                    ActivityLog::create([
+                        'user_type' => 'system',
+                        'user_id' => 'AUTO',
+                        'user_name' => 'System Auto-Cancel',
+                        'action' => 'auto_cancelled',
+                        'module' => 'Transactions',
+                        'description' => 'Auto-cancelled missed appointment for ' . 
+                                       ($appointment->user->fname ?? 'User') . ' ' . 
+                                       ($appointment->user->lname ?? '') . 
+                                       ' (Schedule: ' . $appointment->schedule_date . ' ' . $appointment->time_slot . ')',
+                        'ip_address' => request()->ip() ?? '0.0.0.0',
+                        'metadata' => json_encode([
+                            'transaction_id' => $appointment->id,
+                            'student_id' => $appointment->user->student_id ?? null,
+                            'original_status' => 'approved',
+                            'reason' => 'No-show - Appointment time passed'
+                        ])
+                    ]);
+                } catch (\Exception $logError) {
+                    \Log::error('Failed to log auto-cancellation: ' . $logError->getMessage());
+                }
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => $cancelledCount . ' appointment(s) automatically cancelled',
+                'cancelled_count' => $cancelledCount,
+                'cancelled_appointments' => $cancelledAppointments
+            ], 200);
+
+        } catch (\Exception $e) {
+            \Log::error('Auto-cancel appointments failed: ' . $e->getMessage());
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to auto-cancel appointments',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
      * Get available time slots for a specific date
      */
     public function getAvailableSlots(Request $request)
@@ -392,6 +494,8 @@ class TransactionController extends Controller
 
         $allSlots = [
             'morning' => [
+                '08:00 AM',
+                '08:30 AM',
                 '09:00 AM',
                 '09:30 AM',
                 '10:00 AM',
@@ -406,26 +510,72 @@ class TransactionController extends Controller
                 '02:30 PM',
                 '03:00 PM',
                 '03:30 PM',
+                '04:00 PM',
+                '04:30 PM',
             ]
         ];
 
-        // Get booked slots for the date
-        $bookedSlots = Transaction::where('schedule_date', $request->date)
+        // Maximum appointments per time slot
+        $maxAppointmentsPerSlot = 5;
+
+        // Get count of appointments for each slot (only pending and approved count toward the limit)
+        $slotCounts = Transaction::where('schedule_date', $request->date)
             ->whereIn('status', ['pending', 'approved'])
-            ->pluck('time_slot')
+            ->select('time_slot', \DB::raw('COUNT(*) as count'))
+            ->groupBy('time_slot')
+            ->pluck('count', 'time_slot')
             ->toArray();
 
-        // Filter available slots
+        // Determine which slots are full and which are available
         $availableSlots = [
-            'morning' => array_values(array_diff($allSlots['morning'], $bookedSlots)),
-            'afternoon' => array_values(array_diff($allSlots['afternoon'], $bookedSlots))
+            'morning' => [],
+            'afternoon' => []
         ];
+        
+        $fullSlots = [];
+        $slotAvailability = [];
+
+        foreach ($allSlots['morning'] as $slot) {
+            $currentCount = $slotCounts[$slot] ?? 0;
+            $remainingSlots = $maxAppointmentsPerSlot - $currentCount;
+            
+            $slotAvailability[$slot] = [
+                'total' => $maxAppointmentsPerSlot,
+                'booked' => $currentCount,
+                'available' => $remainingSlots
+            ];
+            
+            if ($currentCount >= $maxAppointmentsPerSlot) {
+                $fullSlots[] = $slot;
+            } else {
+                $availableSlots['morning'][] = $slot;
+            }
+        }
+
+        foreach ($allSlots['afternoon'] as $slot) {
+            $currentCount = $slotCounts[$slot] ?? 0;
+            $remainingSlots = $maxAppointmentsPerSlot - $currentCount;
+            
+            $slotAvailability[$slot] = [
+                'total' => $maxAppointmentsPerSlot,
+                'booked' => $currentCount,
+                'available' => $remainingSlots
+            ];
+            
+            if ($currentCount >= $maxAppointmentsPerSlot) {
+                $fullSlots[] = $slot;
+            } else {
+                $availableSlots['afternoon'][] = $slot;
+            }
+        }
 
         return response()->json([
             'message' => 'Available slots retrieved successfully',
             'date' => $request->date,
             'available_slots' => $availableSlots,
-            'booked_slots' => $bookedSlots
+            'full_slots' => $fullSlots,
+            'slot_details' => $slotAvailability,
+            'max_per_slot' => $maxAppointmentsPerSlot
         ], 200);
     }
 
@@ -481,6 +631,24 @@ class TransactionController extends Controller
             'time_slot' => 'required|string',
         ]);
 
+        // Maximum appointments per time slot
+        $maxAppointmentsPerSlot = 5;
+
+        // Check if time slot is already full (limit: 5 appointments per slot)
+        $slotCount = Transaction::where('schedule_date', $request->schedule_date)
+            ->where('time_slot', $request->time_slot)
+            ->whereIn('status', ['pending', 'approved'])
+            ->count();
+
+        if ($slotCount >= $maxAppointmentsPerSlot) {
+            return response()->json([
+                'message' => 'This time slot is fully booked (' . $slotCount . '/' . $maxAppointmentsPerSlot . ' appointments). Please choose another time slot.',
+                'slot_full' => true,
+                'current_count' => $slotCount,
+                'max_count' => $maxAppointmentsPerSlot
+            ], 409); // 409 Conflict
+        }
+
         // Find user by student_id
         $user = User::where('student_id', $request->student_id)->first();
 
@@ -499,18 +667,6 @@ class TransactionController extends Controller
         if ($existingPurposeAppointment) {
             return response()->json([
                 'message' => 'This student already has a pending or approved appointment for "' . $request->purpose . '". Please wait for it to be completed or cancelled before creating a new one with the same purpose.'
-            ], 409);
-        }
-
-        // Check if the time slot is already booked
-        $existingTimeSlot = Transaction::where('schedule_date', $request->schedule_date)
-            ->where('time_slot', $request->time_slot)
-            ->whereIn('status', ['pending', 'approved'])
-            ->first();
-
-        if ($existingTimeSlot) {
-            return response()->json([
-                'message' => 'This time slot is already booked for the selected date.'
             ], 409);
         }
 
