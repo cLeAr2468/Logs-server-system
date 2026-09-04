@@ -107,6 +107,42 @@ class AuthController extends Controller
             'password' => Hash::make($request->password),
         ]);
 
+        // Log activity - check if created by admin/staff or self-registration
+        $authUser = $request->user(); // Will be null for public registration
+        if ($authUser) {
+            // Created by admin or staff
+            try {
+                ActivityLog::create([
+                    'user_type' => $authUser instanceof \App\Models\Admin ? 'admin' : 'staff',
+                    'user_id' => $authUser instanceof \App\Models\Admin ? $authUser->admin_id : $authUser->staff_id,
+                    'user_name' => trim($authUser->fname . ' ' . $authUser->lname),
+                    'action' => 'created',
+                    'module' => 'Users',
+                    'description' => 'Created client account: ' . $user->fname . ' ' . $user->lname . ' (' . $user->student_id . ')',
+                    'ip_address' => $request->ip(),
+                ]);
+            } catch (\Exception $logError) {
+                // Silently fail activity logging - don't break the registration
+                \Log::error('Activity log failed during user creation: ' . $logError->getMessage());
+            }
+        } else {
+            // Self-registration by client
+            try {
+                ActivityLog::create([
+                    'user_type' => 'client',
+                    'user_id' => $user->student_id,
+                    'user_name' => trim($user->fname . ' ' . $user->lname),
+                    'action' => 'registered',
+                    'module' => 'Authentication',
+                    'description' => 'Client self-registered: ' . $user->fname . ' ' . $user->lname . ' (' . $user->student_id . ')',
+                    'ip_address' => $request->ip(),
+                ]);
+            } catch (\Exception $logError) {
+                // Silently fail activity logging - don't break the registration
+                \Log::error('Activity log failed during self-registration: ' . $logError->getMessage());
+            }
+        }
+
         return response()->json([
             'message' => 'User registered successfully',
             'user' => [

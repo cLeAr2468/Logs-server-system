@@ -37,7 +37,6 @@ Route::get('/masterlist/student/{studentId}', [AuthController::class, 'getStuden
 
 // STAFF AUTH ROUTES
 Route::post('/staff/login', [StaffController::class, 'login']);
-Route::post('/staff/register', [StaffController::class, 'store']);
 
 // ADMIN LOGIN ROUTE (includes default admin and staff login)
 Route::post('/admin/login', [AdminController::class, 'login']);
@@ -100,6 +99,7 @@ Route::middleware('admin.auth')->group(function () {
     Route::post('/admin/change-password', [AdminController::class, 'changePassword']);
     
     // Staff management (admin/staff access)
+    Route::post('/staff/register', [StaffController::class, 'store']); // Staff registration (protected)
     Route::get('/staff', [StaffController::class, 'index']);
     Route::get('/staff/{id}', [StaffController::class, 'show']);
     Route::put('/staff/{id}', [StaffController::class, 'update']);
@@ -107,6 +107,7 @@ Route::middleware('admin.auth')->group(function () {
     Route::post('/staff/logout', [StaffController::class, 'logout']);
     
     // User/Client management (admin/staff access)
+    Route::post('/users', [UserController::class, 'store']); // Create client account (protected)
     Route::get('/users', [UserController::class, 'index']);
     Route::get('/users/statistics', [UserController::class, 'statistics']);
     Route::get('/users/{id}', [UserController::class, 'show']);
