@@ -150,21 +150,45 @@ class StaffController extends Controller
 
             // Log activity (wrapped in try-catch to prevent logging errors from failing the operation)
             $user = $request->user();
+            
             if ($user) {
                 try {
-                    ActivityLog::create([
-                        'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
-                        'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
-                        'user_name' => trim($user->fname . ' ' . $user->lname),
+                    // Determine user type and get user details
+                    $isAdmin = $user instanceof \App\Models\Admin;
+                    $userType = $isAdmin ? 'admin' : 'staff';
+                    $userId = $isAdmin ? $user->admin_id : $user->staff_id;
+                    
+                    // Get user name with fallback
+                    if (isset($user->full_name)) {
+                        $userName = $user->full_name;
+                    } elseif (isset($user->fname) && isset($user->lname)) {
+                        $userName = trim(($user->fname ?? '') . ' ' . ($user->mname ?? '') . ' ' . ($user->lname ?? ''));
+                    } else {
+                        $userName = $userType . ' ' . $userId;
+                    }
+                    
+                    $logData = [
+                        'user_type' => $userType,
+                        'user_id' => $userId,
+                        'user_name' => $userName,
                         'action' => 'created',
                         'module' => 'Staff',
                         'description' => 'Registered new staff: ' . $staff->fname . ' ' . $staff->lname . ' (' . $staff->staff_id . ')',
                         'ip_address' => $request->ip(),
-                    ]);
+                    ];
+                    
+                    ActivityLog::create($logData);
                 } catch (\Exception $logError) {
-                    // Silently fail activity logging - don't break the operation
-                    \Log::error('Activity log failed during staff creation: ' . $logError->getMessage());
+                    // Log the error details for debugging
+                    \Log::error('Activity log failed during staff creation', [
+                        'error' => $logError->getMessage(),
+                        'trace' => $logError->getTraceAsString(),
+                        'user_type' => get_class($user),
+                        'user_id' => $isAdmin ?? false ? ($user->admin_id ?? 'unknown') : ($user->staff_id ?? 'unknown'),
+                    ]);
                 }
+            } else {
+                \Log::warning('Staff creation: No authenticated user found - activity not logged');
             }
 
             return response()->json([
