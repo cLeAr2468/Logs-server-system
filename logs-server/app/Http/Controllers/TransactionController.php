@@ -41,6 +41,7 @@ class TransactionController extends Controller
 
     /**
      * Create a new appointment/transaction
+     * Enforces 5 appointments per time slot limit (counts ALL statuses)
      */
     public function store(Request $request)
     {
@@ -56,15 +57,18 @@ class TransactionController extends Controller
         // Maximum appointments per time slot
         $maxAppointmentsPerSlot = 5;
 
-        // Check if time slot is already full (limit: 5 appointments per slot - ALL statuses count)
+        // CRITICAL: Check if time slot is already full (limit: 5 appointments per slot - ALL statuses count)
         $slotCount = Transaction::where('schedule_date', $request->schedule_date)
             ->where('time_slot', $request->time_slot)
             ->count();
 
+        \Log::info("Slot check for {$request->schedule_date} {$request->time_slot}: {$slotCount}/{$maxAppointmentsPerSlot}");
+
         if ($slotCount >= $maxAppointmentsPerSlot) {
             return response()->json([
                 'message' => 'This time slot is fully booked (5/5 appointments). Please choose another time slot.',
-                'slot_full' => true
+                'slot_full' => true,
+                'current_count' => $slotCount
             ], 409); // 409 Conflict
         }
 
