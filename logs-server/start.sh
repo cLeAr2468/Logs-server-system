@@ -15,8 +15,14 @@ echo "Creating storage link..."
 php artisan storage:link --force || echo "Storage link already exists or failed"
 
 # Clear any cached config
+echo "Clearing caches..."
 php artisan config:clear
 php artisan cache:clear
 
+# Optional: Run migrations automatically (uncomment if you want auto-migration)
+# echo "Running migrations..."
+# php artisan migrate --force
+
 # Start the server
+echo "Starting PHP server on port ${PORT:-8000}..."
 php artisan serve --host=0.0.0.0 --port=${PORT:-8000}
