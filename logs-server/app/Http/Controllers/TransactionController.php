@@ -623,87 +623,103 @@ class TransactionController extends Controller
      */
     public function storeByAdmin(Request $request)
     {
-        $request->validate([
-            'student_id' => 'required|string|exists:users,student_id',
-            'purpose' => 'required|string',
-            'brgy' => 'required|string',
-            'municipality' => 'required|string',
-            'province' => 'required|string',
-            'schedule_date' => 'required|date|after_or_equal:today',
-            'time_slot' => 'required|string',
-        ]);
-
-        // Maximum appointments per time slot
-        $maxAppointmentsPerSlot = 5;
-
-        // Check if time slot is already full (limit: 5 appointments per slot - ALL statuses count)
-        $slotCount = Transaction::where('schedule_date', $request->schedule_date)
-            ->where('time_slot', $request->time_slot)
-            ->count();
-
-        if ($slotCount >= $maxAppointmentsPerSlot) {
-            return response()->json([
-                'message' => 'This time slot is fully booked (' . $slotCount . '/' . $maxAppointmentsPerSlot . ' appointments). Please choose another time slot.',
-                'slot_full' => true,
-                'current_count' => $slotCount,
-                'max_count' => $maxAppointmentsPerSlot
-            ], 409); // 409 Conflict
-        }
-
-        // Find user by student_id
-        $user = User::where('student_id', $request->student_id)->first();
-
-        if (!$user) {
-            return response()->json([
-                'message' => 'User with this Student ID not found'
-            ], 404);
-        }
-
-        // Check if user already has a pending or approved appointment with the same purpose
-        $existingPurposeAppointment = Transaction::where('user_id', $user->id)
-            ->where('purpose', $request->purpose)
-            ->whereIn('status', ['pending', 'approved'])
-            ->first();
-
-        if ($existingPurposeAppointment) {
-            return response()->json([
-                'message' => 'This student already has a pending or approved appointment for "' . $request->purpose . '". Please wait for it to be completed or cancelled before creating a new one with the same purpose.'
-            ], 409);
-        }
-
-        // Create transaction with status 'approved' (Processing) since admin/staff created it
-        $transaction = Transaction::create([
-            'user_id' => $user->id,
-            'purpose' => $request->purpose,
-            'brgy' => $request->brgy,
-            'municipality' => $request->municipality,
-            'province' => $request->province,
-            'schedule_date' => $request->schedule_date,
-            'time_slot' => $request->time_slot,
-            'status' => 'approved', // Admin/Staff created = automatically approved (Processing)
-        ]);
-
-        // Load the user relationship
-        $transaction->load('user');
-
-        // Log activity (admin/staff created transaction)
-        $authUser = $request->user();
-        if ($authUser && ($authUser instanceof \App\Models\Admin || $authUser instanceof \App\Models\Staff)) {
-            $studentName = $user->fname . ' ' . $user->lname;
-            ActivityLog::create([
-                'user_type' => $authUser instanceof \App\Models\Admin ? 'admin' : 'staff',
-                'user_id' => $authUser instanceof \App\Models\Admin ? $authUser->admin_id : $authUser->staff_id,
-                'user_name' => trim($authUser->fname . ' ' . $authUser->lname),
-                'action' => 'created',
-                'module' => 'Transaction',
-                'description' => "Created transaction for student: {$studentName} ({$user->student_id}) - Purpose: {$transaction->purpose}",
-                'ip_address' => $request->ip(),
+        try {
+            $request->validate([
+                'student_id' => 'required|string|exists:users,student_id',
+                'purpose' => 'required|string',
+                'brgy' => 'required|string',
+                'municipality' => 'required|string',
+                'province' => 'required|string',
+                'schedule_date' => 'required|date|after_or_equal:today',
+                'time_slot' => 'required|string',
             ]);
-        }
 
-        return response()->json([
-            'message' => 'Transaction created successfully with Processing status',
-            'transaction' => $transaction
-        ], 201);
+            // Maximum appointments per time slot
+            $maxAppointmentsPerSlot = 5;
+
+            // Check if time slot is already full (limit: 5 appointments per slot - ALL statuses count)
+            $slotCount = Transaction::where('schedule_date', $request->schedule_date)
+                ->where('time_slot', $request->time_slot)
+                ->count();
+
+            if ($slotCount >= $maxAppointmentsPerSlot) {
+                return response()->json([
+                    'message' => 'This time slot is fully booked (' . $slotCount . '/' . $maxAppointmentsPerSlot . ' appointments). Please choose another time slot.',
+                    'slot_full' => true,
+                    'current_count' => $slotCount,
+                    'max_count' => $maxAppointmentsPerSlot
+                ], 409); // 409 Conflict
+            }
+
+            // Find user by student_id
+            $user = User::where('student_id', $request->student_id)->first();
+
+            if (!$user) {
+                return response()->json([
+                    'message' => 'User with this Student ID not found'
+                ], 404);
+            }
+
+            // Check if user already has a pending or approved appointment with the same purpose
+            $existingPurposeAppointment = Transaction::where('user_id', $user->id)
+                ->where('purpose', $request->purpose)
+                ->whereIn('status', ['pending', 'approved'])
+                ->first();
+
+            if ($existingPurposeAppointment) {
+                return response()->json([
+                    'message' => 'This student already has a pending or approved appointment for "' . $request->purpose . '". Please wait for it to be completed or cancelled before creating a new one with the same purpose.'
+                ], 409);
+            }
+
+            // Create transaction with status 'approved' (Processing) since admin/staff created it
+            $transaction = Transaction::create([
+                'user_id' => $user->id,
+                'purpose' => $request->purpose,
+                'brgy' => $request->brgy,
+                'municipality' => $request->municipality,
+                'province' => $request->province,
+                'schedule_date' => $request->schedule_date,
+                'time_slot' => $request->time_slot,
+                'status' => 'approved', // Admin/Staff created = automatically approved (Processing)
+            ]);
+
+            // Load the user relationship
+            $transaction->load('user');
+
+            // Log activity (admin/staff created transaction)
+            $authUser = $request->user();
+            if ($authUser && ($authUser instanceof \App\Models\Admin || $authUser instanceof \App\Models\Staff)) {
+                $studentName = $user->fname . ' ' . $user->lname;
+                ActivityLog::create([
+                    'user_type' => $authUser instanceof \App\Models\Admin ? 'admin' : 'staff',
+                    'user_id' => $authUser instanceof \App\Models\Admin ? $authUser->admin_id : $authUser->staff_id,
+                    'user_name' => trim($authUser->fname . ' ' . $authUser->lname),
+                    'action' => 'created',
+                    'module' => 'Transaction',
+                    'description' => "Created transaction for student: {$studentName} ({$user->student_id}) - Purpose: {$transaction->purpose}",
+                    'ip_address' => $request->ip(),
+                ]);
+            }
+
+            return response()->json([
+                'message' => 'Transaction created successfully with Processing status',
+                'transaction' => $transaction
+            ], 201);
+            
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            \Log::error('[storeByAdmin] Validation Error: ' . json_encode($e->errors()));
+            return response()->json([
+                'message' => 'Validation failed',
+                'errors' => $e->errors()
+            ], 422);
+        } catch (\Exception $e) {
+            \Log::error('[storeByAdmin] Exception: ' . $e->getMessage());
+            \Log::error('[storeByAdmin] Trace: ' . $e->getTraceAsString());
+            return response()->json([
+                'message' => 'Failed to create transaction',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 }
