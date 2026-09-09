@@ -58,7 +58,7 @@ class TransactionController extends Controller
         $maxAppointmentsPerSlot = 5;
 
         // CRITICAL: Check if time slot is already full (limit: 5 appointments per slot - only pending and approved count)
-        $slotCount = Transaction::where('schedule_date', $request->schedule_date)
+        $slotCount = Transaction::whereRaw('DATE(schedule_date) = ?', [$request->schedule_date])
             ->where('time_slot', $request->time_slot)
             ->whereIn('status', ['pending', 'approved'])
             ->count();
@@ -87,7 +87,7 @@ class TransactionController extends Controller
 
         // Check if user already has a pending or approved appointment on the same date and time
         $existingTimeSlot = Transaction::where('user_id', $request->user()->id)
-            ->where('schedule_date', $request->schedule_date)
+            ->whereRaw('DATE(schedule_date) = ?', [$request->schedule_date])
             ->where('time_slot', $request->time_slot)
             ->whereIn('status', ['pending', 'approved'])
             ->first();
@@ -202,7 +202,7 @@ class TransactionController extends Controller
             $newTimeSlot = $request->time_slot ?? $transaction->time_slot;
             
             // Check if the new time slot is full (only count pending/approved, excluding current transaction)
-            $slotCount = Transaction::where('schedule_date', $newDate)
+            $slotCount = Transaction::whereRaw('DATE(schedule_date) = ?', [$newDate])
                 ->where('time_slot', $newTimeSlot)
                 ->where('id', '!=', $id) // Exclude current appointment
                 ->whereIn('status', ['pending', 'approved'])
@@ -219,7 +219,7 @@ class TransactionController extends Controller
             
             // Check for user's own duplicate time slot
             $existingTimeSlot = Transaction::where('user_id', $request->user()->id)
-                ->where('schedule_date', $newDate)
+                ->whereRaw('DATE(schedule_date) = ?', [$newDate])
                 ->where('time_slot', $newTimeSlot)
                 ->where('id', '!=', $id) // Exclude current appointment
                 ->whereIn('status', ['pending', 'approved'])
@@ -525,6 +525,9 @@ class TransactionController extends Controller
             'date' => 'required|date|after_or_equal:today'
         ]);
 
+        \Log::info('=== getAvailableSlots called ===');
+        \Log::info('Requested date: ' . $request->date);
+
         $allSlots = [
             'morning' => [
                 '08:00 AM',
@@ -544,12 +547,15 @@ class TransactionController extends Controller
         $maxAppointmentsPerSlot = 5;
 
         // Get count of pending and approved appointments for each slot (only these statuses count toward the limit)
-        $slotCounts = Transaction::where('schedule_date', $request->date)
+        // Use DATE() function to compare only the date part, ignoring time
+        $slotCounts = Transaction::whereRaw('DATE(schedule_date) = ?', [$request->date])
             ->whereIn('status', ['pending', 'approved'])
             ->select('time_slot', \DB::raw('COUNT(*) as count'))
             ->groupBy('time_slot')
             ->pluck('count', 'time_slot')
             ->toArray();
+
+        \Log::info('Slot counts from database: ' . json_encode($slotCounts));
 
         // Determine which slots are full and which are available
         $availableSlots = [
@@ -593,6 +599,9 @@ class TransactionController extends Controller
                 $availableSlots['afternoon'][] = $slot;
             }
         }
+
+        \Log::info('Slot availability details: ' . json_encode($slotAvailability));
+        \Log::info('Full slots: ' . json_encode($fullSlots));
 
         return response()->json([
             'message' => 'Available slots retrieved successfully',
@@ -665,7 +674,7 @@ class TransactionController extends Controller
             $maxAppointmentsPerSlot = 5;
 
             // Check if time slot is already full (only count pending and approved appointments)
-            $slotCount = Transaction::where('schedule_date', $request->schedule_date)
+            $slotCount = Transaction::whereRaw('DATE(schedule_date) = ?', [$request->schedule_date])
                 ->where('time_slot', $request->time_slot)
                 ->whereIn('status', ['pending', 'approved'])
                 ->count();
