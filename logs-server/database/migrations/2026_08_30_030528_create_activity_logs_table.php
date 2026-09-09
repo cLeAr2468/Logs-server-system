@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::create('activity_logs', function (Blueprint $table) {
             $table->id();
             $table->string('user_type'); // 'admin' or 'staff'
-            $table->unsignedBigInteger('user_id'); // ID from admins or staff table
+            $table->string('user_id'); // String ID from admins or staff table (e.g., 'ADMIN-001', 'STAFF-001')
             $table->string('user_name'); // Full name for display
             $table->string('action'); // e.g., 'created', 'updated', 'deleted', 'logged_in', 'logged_out'
             $table->string('module'); // e.g., 'transaction', 'announcement', 'user', 'staff', 'masterlist'

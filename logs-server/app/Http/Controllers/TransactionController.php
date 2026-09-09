@@ -241,95 +241,100 @@ class TransactionController extends Controller
      */
     public function updateStatus(Request $request, $id)
     {
-        $request->validate([
-            'status' => 'required|in:pending,approved,completed,cancelled,rejected'
-        ]);
-
-        $transaction = Transaction::with('user')->find($id);
-
-        if (!$transaction) {
-            return response()->json([
-                'message' => 'Transaction not found'
-            ], 404);
-        }
-
-        $oldStatus = $transaction->status;
-        $newStatus = $request->status;
-
-        // Send email notification FIRST if status changes to approved, rejected, or completed
-        if (in_array($newStatus, ['approved', 'rejected', 'completed']) && $oldStatus !== $newStatus) {
-            try {
-                $user = $transaction->user;
-                
-                if (!$user) {
-                    return response()->json([
-                        'message' => 'User not found for this transaction',
-                        'error' => 'user_not_found'
-                    ], 404);
-                }
-                
-                $studentName = $user->fname . ' ' . $user->lname;
-
-                // Try to send email FIRST (before changing status)
-                Mail::to($user->email)->send(new TransactionStatusMail($transaction, $newStatus, $studentName));
-                
-                // Log successful email send
-                \Log::info('Transaction status email sent successfully', [
-                    'transaction_id' => $transaction->id,
-                    'email' => $user->email,
-                    'old_status' => $oldStatus,
-                    'new_status' => $newStatus,
-                    'student_name' => $studentName
-                ]);
-                
-            } catch (\Exception $e) {
-                // Log detailed error
-                \Log::error('Failed to send transaction status email', [
-                    'transaction_id' => $transaction->id,
-                    'email' => $transaction->user->email ?? 'unknown',
-                    'old_status' => $oldStatus,
-                    'new_status' => $newStatus,
-                    'error' => $e->getMessage(),
-                    'trace' => $e->getTraceAsString(),
-                    'mail_driver' => config('mail.default'),
-                    'from_address' => config('mail.from.address')
-                ]);
-                
-                // Return error without changing status
-                return response()->json([
-                    'message' => 'Failed to send email notification. Transaction status was not changed.',
-                    'error' => 'email_send_failed',
-                    'details' => config('app.debug') ? $e->getMessage() : 'Email service temporarily unavailable',
-                    'transaction_id' => $transaction->id,
-                    'attempted_status' => $newStatus
-                ], 500);
-            }
-        }
-
-        // Only update status if email was sent successfully (or no email needed)
-        $transaction->status = $newStatus;
-        $transaction->save();
-
-        // Log activity (admin/staff status update)
-        $user = $request->user();
-        if ($user && ($user instanceof \App\Models\Admin || $user instanceof \App\Models\Staff)) {
-            $studentName = $transaction->user->fname . ' ' . $transaction->user->lname;
-            ActivityLog::create([
-                'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
-                'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
-                'user_name' => trim($user->fname . ' ' . $user->lname),
-                'action' => 'updated',
-                'module' => 'Transaction',
-                'description' => "Updated transaction status to '{$newStatus}' for student: {$studentName} ({$transaction->user->student_id})",
-                'ip_address' => $request->ip(),
+        try {
+            \Log::info('=== updateStatus START ===');
+            \Log::info('Transaction ID: ' . $id);
+            \Log::info('Request user type: ' . get_class($request->user()));
+            \Log::info('New status: ' . $request->status);
+            
+            $request->validate([
+                'status' => 'required|in:pending,approved,completed,cancelled,rejected'
             ]);
-        }
 
-        return response()->json([
-            'message' => 'Transaction status updated successfully',
-            'transaction' => $transaction,
-            'email_sent' => in_array($newStatus, ['approved', 'rejected', 'completed']) && $oldStatus !== $newStatus
-        ], 200);
+            $transaction = Transaction::with('user')->find($id);
+
+            if (!$transaction) {
+                return response()->json([
+                    'message' => 'Transaction not found'
+                ], 404);
+            }
+
+            $oldStatus = $transaction->status;
+            $newStatus = $request->status;
+
+            // Send email notification FIRST if status changes to approved, rejected, or completed
+            if (in_array($newStatus, ['approved', 'rejected', 'completed']) && $oldStatus !== $newStatus) {
+                try {
+                    $user = $transaction->user;
+                    
+                    if (!$user) {
+                        return response()->json([
+                            'message' => 'User not found for this transaction',
+                            'error' => 'user_not_found'
+                        ], 404);
+                    }
+                    
+                    $studentName = $user->fname . ' ' . $user->lname;
+
+                    \Log::info('Sending email to: ' . $user->email);
+                    Mail::to($user->email)->send(new TransactionStatusMail($transaction, $newStatus, $studentName));
+                    \Log::info('Email sent successfully');
+                    
+                } catch (\Exception $e) {
+                    \Log::error('Failed to send transaction status email: ' . $e->getMessage());
+                    
+                    return response()->json([
+                        'message' => 'Failed to send email notification. Transaction status was not changed.',
+                        'error' => 'email_send_failed',
+                        'details' => config('app.debug') ? $e->getMessage() : 'Email service temporarily unavailable'
+                    ], 500);
+                }
+            }
+
+            // Update status
+            $transaction->status = $newStatus;
+            $transaction->save();
+            \Log::info('Transaction status updated from ' . $oldStatus . ' to ' . $newStatus);
+
+            // Log activity
+            $authUser = $request->user();
+            \Log::info('Logging activity - Auth user type: ' . get_class($authUser));
+            
+            if ($authUser && ($authUser instanceof \App\Models\Admin || $authUser instanceof \App\Models\Staff)) {
+                $studentName = $transaction->user->fname . ' ' . $transaction->user->lname;
+                $logData = [
+                    'user_type' => $authUser instanceof \App\Models\Admin ? 'admin' : 'staff',
+                    'user_id' => $authUser instanceof \App\Models\Admin ? $authUser->admin_id : $authUser->staff_id,
+                    'user_name' => trim($authUser->fname . ' ' . $authUser->lname),
+                    'action' => 'updated',
+                    'module' => 'Transaction',
+                    'description' => "Updated transaction status to '{$newStatus}' for student: {$studentName} ({$transaction->user->student_id})",
+                    'ip_address' => $request->ip(),
+                ];
+                
+                \Log::info('Creating activity log: ' . json_encode($logData));
+                ActivityLog::create($logData);
+                \Log::info('Activity log created successfully');
+            }
+
+            \Log::info('=== updateStatus SUCCESS ===');
+
+            return response()->json([
+                'message' => 'Transaction status updated successfully',
+                'transaction' => $transaction,
+                'email_sent' => in_array($newStatus, ['approved', 'rejected', 'completed']) && $oldStatus !== $newStatus
+            ], 200);
+            
+        } catch (\Exception $e) {
+            \Log::error('[updateStatus] Exception: ' . $e->getMessage());
+            \Log::error('[updateStatus] File: ' . $e->getFile() . ':' . $e->getLine());
+            \Log::error('[updateStatus] Trace: ' . $e->getTraceAsString());
+            
+            return response()->json([
+                'message' => 'Failed to update transaction status',
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+            ], 500);
+        }
     }
 
     /**
@@ -624,6 +629,10 @@ class TransactionController extends Controller
     public function storeByAdmin(Request $request)
     {
         try {
+            \Log::info('=== storeByAdmin START ===');
+            \Log::info('Request user type: ' . get_class($request->user()));
+            \Log::info('Request data: ' . json_encode($request->all()));
+            
             $request->validate([
                 'student_id' => 'required|string|exists:users,student_id',
                 'purpose' => 'required|string',
@@ -637,7 +646,7 @@ class TransactionController extends Controller
             // Maximum appointments per time slot
             $maxAppointmentsPerSlot = 5;
 
-            // Check if time slot is already full (limit: 5 appointments per slot - ALL statuses count)
+            // Check if time slot is already full
             $slotCount = Transaction::where('schedule_date', $request->schedule_date)
                 ->where('time_slot', $request->time_slot)
                 ->count();
@@ -648,7 +657,7 @@ class TransactionController extends Controller
                     'slot_full' => true,
                     'current_count' => $slotCount,
                     'max_count' => $maxAppointmentsPerSlot
-                ], 409); // 409 Conflict
+                ], 409);
             }
 
             // Find user by student_id
@@ -660,7 +669,7 @@ class TransactionController extends Controller
                 ], 404);
             }
 
-            // Check if user already has a pending or approved appointment with the same purpose
+            // Check duplicate purpose
             $existingPurposeAppointment = Transaction::where('user_id', $user->id)
                 ->where('purpose', $request->purpose)
                 ->whereIn('status', ['pending', 'approved'])
@@ -672,7 +681,8 @@ class TransactionController extends Controller
                 ], 409);
             }
 
-            // Create transaction with status 'approved' (Processing) since admin/staff created it
+            // Create transaction
+            \Log::info('Creating transaction...');
             $transaction = Transaction::create([
                 'user_id' => $user->id,
                 'purpose' => $request->purpose,
@@ -681,17 +691,22 @@ class TransactionController extends Controller
                 'province' => $request->province,
                 'schedule_date' => $request->schedule_date,
                 'time_slot' => $request->time_slot,
-                'status' => 'approved', // Admin/Staff created = automatically approved (Processing)
+                'status' => 'approved',
             ]);
+            \Log::info('Transaction created with ID: ' . $transaction->id);
 
-            // Load the user relationship
+            // Load user relationship
             $transaction->load('user');
 
-            // Log activity (admin/staff created transaction)
+            // Log activity
             $authUser = $request->user();
+            \Log::info('Auth user type: ' . get_class($authUser));
+            \Log::info('Is Admin? ' . ($authUser instanceof \App\Models\Admin ? 'YES' : 'NO'));
+            \Log::info('Is Staff? ' . ($authUser instanceof \App\Models\Staff ? 'YES' : 'NO'));
+            
             if ($authUser && ($authUser instanceof \App\Models\Admin || $authUser instanceof \App\Models\Staff)) {
                 $studentName = $user->fname . ' ' . $user->lname;
-                ActivityLog::create([
+                $logData = [
                     'user_type' => $authUser instanceof \App\Models\Admin ? 'admin' : 'staff',
                     'user_id' => $authUser instanceof \App\Models\Admin ? $authUser->admin_id : $authUser->staff_id,
                     'user_name' => trim($authUser->fname . ' ' . $authUser->lname),
@@ -699,9 +714,19 @@ class TransactionController extends Controller
                     'module' => 'Transaction',
                     'description' => "Created transaction for student: {$studentName} ({$user->student_id}) - Purpose: {$transaction->purpose}",
                     'ip_address' => $request->ip(),
-                ]);
+                ];
+                
+                \Log::info('Creating activity log with data: ' . json_encode($logData));
+                
+                ActivityLog::create($logData);
+                
+                \Log::info('Activity log created successfully');
+            } else {
+                \Log::warning('Auth user is not Admin or Staff - no activity log created');
             }
 
+            \Log::info('=== storeByAdmin SUCCESS ===');
+            
             return response()->json([
                 'message' => 'Transaction created successfully with Processing status',
                 'transaction' => $transaction
@@ -715,10 +740,11 @@ class TransactionController extends Controller
             ], 422);
         } catch (\Exception $e) {
             \Log::error('[storeByAdmin] Exception: ' . $e->getMessage());
+            \Log::error('[storeByAdmin] File: ' . $e->getFile() . ':' . $e->getLine());
             \Log::error('[storeByAdmin] Trace: ' . $e->getTraceAsString());
             return response()->json([
                 'message' => 'Failed to create transaction',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
             ], 500);
         }
     }
