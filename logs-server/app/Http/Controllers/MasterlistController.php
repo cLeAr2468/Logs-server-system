@@ -390,8 +390,52 @@ class MasterlistController extends Controller
                 ], 422);
             }
 
-            // Get headers and normalize them
-            $originalHeaders = array_map('trim', $csvData[0]);
+            // Find the actual header row (skip title/empty rows like "Registrar's Portal")
+            $headerRowIndex = 0;
+            $originalHeaders = [];
+            
+            // Check first 5 rows to find the header row
+            for ($i = 0; $i < min(5, count($csvData)); $i++) {
+                $row = array_map('trim', $csvData[$i]);
+                
+                // Count non-empty columns
+                $nonEmptyColumns = count(array_filter($row, function($cell) {
+                    return !empty($cell);
+                }));
+                
+                // Check if this looks like a header row
+                // Header row should have at least 6 non-empty columns with text (not numbers)
+                if ($nonEmptyColumns >= 6) {
+                    // Check if it contains typical header keywords
+                    $headerKeywords = ['id', 'number', 'name', 'email', 'program', 'year', 'level', 'course', 'first', 'last'];
+                    $matchedKeywords = 0;
+                    
+                    foreach ($row as $cell) {
+                        $cellLower = strtolower($cell);
+                        foreach ($headerKeywords as $keyword) {
+                            if (strpos($cellLower, $keyword) !== false) {
+                                $matchedKeywords++;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // If we found multiple header keywords, this is likely the header row
+                    if ($matchedKeywords >= 4) {
+                        $headerRowIndex = $i;
+                        $originalHeaders = $row;
+                        break;
+                    }
+                }
+            }
+            
+            if (empty($originalHeaders)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Could not find valid header row in CSV file',
+                    'hint' => 'Please ensure your CSV has a header row with column names like: ID Number, First Name, Last Name, Email, etc.',
+                ], 422);
+            }
             
             // ========== INTELLIGENT FIELD MAPPING ==========
             // Map CSV headers to database fields
@@ -419,14 +463,14 @@ class MasterlistController extends Controller
             // Use database transaction
             \DB::beginTransaction();
 
-            // Process data rows
+            // Process data rows (start after header row)
             $imported = 0;
             $skipped = 0;
             $totalRows = 0;
             $duplicateRecords = [];
             $errors = [];
 
-            for ($i = 1; $i < count($csvData); $i++) {
+            for ($i = $headerRowIndex + 1; $i < count($csvData); $i++) {
                 $row = $csvData[$i];
                 
                 // Skip empty rows
