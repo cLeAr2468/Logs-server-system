@@ -356,7 +356,7 @@ class MasterlistController extends Controller
     }
 
     /**
-     * Import masterlist from CSV file
+     * Import masterlist from CSV file with intelligent field mapping
      * 
      * @param \Illuminate\Http\Request $request
      * @return \Illuminate\Http\JsonResponse
@@ -390,17 +390,29 @@ class MasterlistController extends Controller
                 ], 422);
             }
 
-            // Get headers
-            $headers = array_map('trim', $csvData[0]);
+            // Get headers and normalize them
+            $originalHeaders = array_map('trim', $csvData[0]);
             
-            // Validate required headers
-            $requiredHeaders = ['student_id', 'fname', 'lname', 'email', 'course', 'year_level'];
-            $missingHeaders = array_diff($requiredHeaders, $headers);
+            // ========== INTELLIGENT FIELD MAPPING ==========
+            // Map CSV headers to database fields
+            $fieldMapping = $this->mapCSVHeaders($originalHeaders);
             
-            if (!empty($missingHeaders)) {
+            // Validate if all required fields are found
+            $requiredFields = ['student_id', 'fname', 'lname', 'email', 'course', 'year_level'];
+            $missingFields = [];
+            
+            foreach ($requiredFields as $field) {
+                if (!isset($fieldMapping[$field])) {
+                    $missingFields[] = $field;
+                }
+            }
+            
+            if (!empty($missingFields)) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Missing required headers: ' . implode(', ', $missingHeaders),
+                    'message' => 'Could not identify required fields in CSV: ' . implode(', ', $missingFields),
+                    'hint' => 'Please ensure your CSV contains columns for: ID Number, First Name, Last Name, Email, Program/Course, and Year Level',
+                    'detected_headers' => $originalHeaders,
                 ], 422);
             }
 
@@ -424,11 +436,8 @@ class MasterlistController extends Controller
                 
                 $totalRows++;
 
-                // Map row data to headers
-                $data = array_combine($headers, $row);
-                
-                // Trim all values
-                $data = array_map('trim', $data);
+                // Extract only the fields we need using the field mapping
+                $data = $this->extractMappedData($row, $originalHeaders, $fieldMapping);
 
                 // Skip if required fields are empty
                 if (empty($data['student_id']) || empty($data['fname']) || 
@@ -545,5 +554,107 @@ class MasterlistController extends Controller
                 'error' => $e->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * Intelligent field mapping - maps CSV headers to database fields
+     * This allows flexible CSV formats with different header names
+     * 
+     * @param array $headers - CSV header row
+     * @return array - Mapping of database field => CSV column index
+     */
+    private function mapCSVHeaders($headers)
+    {
+        $mapping = [];
+        
+        // Define possible variations for each field
+        $fieldPatterns = [
+            'student_id' => [
+                'patterns' => ['id number', 'student id', 'student_id', 'studentid', 'id no', 'student no', 'id'],
+                'priority' => 1
+            ],
+            'fname' => [
+                'patterns' => ['first name', 'firstname', 'fname', 'first', 'given name', 'givenname'],
+                'priority' => 2
+            ],
+            'mname' => [
+                'patterns' => ['middle name', 'middlename', 'mname', 'middle', 'm.i', 'mi', 'm. i.'],
+                'priority' => 3
+            ],
+            'lname' => [
+                'patterns' => ['last name', 'lastname', 'lname', 'last', 'surname', 'family name', 'familyname'],
+                'priority' => 4
+            ],
+            'email' => [
+                'patterns' => ['email', 'e-mail', 'email address', 'emailaddress', 'mail'],
+                'priority' => 5
+            ],
+            'course' => [
+                'patterns' => ['course', 'program', 'program code', 'programcode', 'degree', 'major'],
+                'priority' => 6
+            ],
+            'year_level' => [
+                'patterns' => ['year level', 'yearlevel', 'year', 'level', 'year lvl', 'yr level', 'yr lvl', 'grade level'],
+                'priority' => 7
+            ],
+        ];
+
+        // Normalize headers for comparison
+        $normalizedHeaders = array_map(function($header) {
+            return strtolower(trim($header));
+        }, $headers);
+
+        // Try to match each header to a database field
+        foreach ($fieldPatterns as $dbField => $config) {
+            foreach ($config['patterns'] as $pattern) {
+                // Find exact match first
+                $index = array_search($pattern, $normalizedHeaders);
+                
+                if ($index !== false) {
+                    $mapping[$dbField] = $index;
+                    break;
+                }
+                
+                // If no exact match, try partial match (contains)
+                foreach ($normalizedHeaders as $idx => $normalizedHeader) {
+                    if (strpos($normalizedHeader, $pattern) !== false) {
+                        // Make sure this column isn't already mapped
+                        if (!in_array($idx, $mapping)) {
+                            $mapping[$dbField] = $idx;
+                            break 2; // Break both foreach loops
+                        }
+                    }
+                }
+            }
+        }
+
+        return $mapping;
+    }
+
+    /**
+     * Extract mapped data from CSV row using field mapping
+     * 
+     * @param array $row - CSV data row
+     * @param array $originalHeaders - Original CSV headers
+     * @param array $fieldMapping - Field mapping (dbField => columnIndex)
+     * @return array - Extracted data array
+     */
+    private function extractMappedData($row, $originalHeaders, $fieldMapping)
+    {
+        $data = [];
+        
+        foreach ($fieldMapping as $dbField => $columnIndex) {
+            // Get value from the row using the column index
+            $value = isset($row[$columnIndex]) ? trim($row[$columnIndex]) : null;
+            
+            // Clean up the value (remove quotes, extra spaces)
+            if ($value) {
+                $value = trim($value, " \t\n\r\0\x0B\"'");
+            }
+            
+            $data[$dbField] = $value;
+        }
+        
+        return $data;
     }
 }
