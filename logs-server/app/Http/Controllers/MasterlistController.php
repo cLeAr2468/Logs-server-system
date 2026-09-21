@@ -221,29 +221,63 @@ class MasterlistController extends Controller
                 ], 422);
             }
 
-            // Update masterlist data
-            $masterlist->update($request->only([
-                'student_id', 
-                'fname', 
-                'mname', 
-                'lname', 
-                'email', 
-                'course', 
-                'year_level', 
-                'status'
-            ]));
+            // Track changes before update
+            $changes = [];
+            $fieldLabels = [
+                'student_id' => 'Student ID',
+                'fname' => 'First Name',
+                'mname' => 'Middle Name',
+                'lname' => 'Last Name',
+                'email' => 'Email',
+                'course' => 'Course',
+                'year_level' => 'Year Level',
+                'status' => 'Status'
+            ];
 
-            // Log activity (wrapped in try-catch to prevent logging errors from failing the operation)
+            $updateableFields = ['student_id', 'fname', 'mname', 'lname', 'email', 'course', 'year_level', 'status'];
+            
+            foreach ($updateableFields as $field) {
+                if ($request->has($field)) {
+                    $oldValue = $masterlist->$field;
+                    $newValue = $request->$field;
+                    
+                    // Handle null/empty values for middle name
+                    if ($field === 'mname') {
+                        $oldValue = $oldValue ?: '(empty)';
+                        $newValue = $newValue ?: '(empty)';
+                    }
+                    
+                    // Track only if value actually changed
+                    if ($oldValue != $newValue) {
+                        $changes[] = $fieldLabels[$field] . ': "' . $oldValue . '" → "' . $newValue . '"';
+                    }
+                }
+            }
+
+            // Update masterlist data
+            $masterlist->update($request->only($updateableFields));
+
+            // Log activity with detailed changes (wrapped in try-catch to prevent logging errors from failing the operation)
             $user = $request->user();
             if ($user) {
                 try {
+                    // Build description with specific changes
+                    $studentInfo = $masterlist->fname . ' ' . $masterlist->lname . ' (' . $masterlist->student_id . ')';
+                    
+                    if (!empty($changes)) {
+                        $changesText = implode(', ', $changes);
+                        $description = 'Updated masterlist entry for ' . $studentInfo . '. Changes: ' . $changesText;
+                    } else {
+                        $description = 'Updated masterlist entry for ' . $studentInfo . ' (no changes detected)';
+                    }
+
                     ActivityLog::create([
                         'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
                         'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
                         'user_name' => trim($user->fname . ' ' . $user->lname),
                         'action' => 'updated',
                         'module' => 'Masterlist',
-                        'description' => 'Updated masterlist entry: ' . $masterlist->fname . ' ' . $masterlist->lname . ' (' . $masterlist->student_id . ')',
+                        'description' => $description,
                         'ip_address' => $request->ip(),
                     ]);
                 } catch (\Exception $logError) {
