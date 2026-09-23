@@ -97,18 +97,42 @@ class FeedbackController extends Controller
      */
     public function getCompletedTransactionsWithoutFeedback(Request $request)
     {
-        $user = $request->user();
+        try {
+            $user = $request->user();
 
-        $completedTransactions = \App\Models\Transaction::where('user_id', $user->id)
-            ->where('status', 'completed')
-            ->whereDoesntHave('feedback')
-            ->orderBy('schedule_date', 'desc')
-            ->get(['id', 'purpose', 'schedule_date', 'time_slot', 'created_at']);
+            if (!$user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized',
+                    'transactions' => [],
+                    'count' => 0
+                ], 401);
+            }
 
-        return response()->json([
-            'transactions' => $completedTransactions,
-            'count' => $completedTransactions->count()
-        ]);
+            // Get completed transactions for this user that don't have feedback yet
+            $completedTransactions = \App\Models\Transaction::where('user_id', $user->id)
+                ->where('status', 'completed')
+                ->whereNotExists(function ($query) {
+                    $query->select(\DB::raw(1))
+                          ->from('feedback')
+                          ->whereColumn('feedback.transaction_id', 'transactions.id');
+                })
+                ->orderBy('schedule_date', 'desc')
+                ->get(['id', 'purpose', 'schedule_date', 'time_slot', 'created_at']);
+
+            return response()->json([
+                'success' => true,
+                'transactions' => $completedTransactions,
+                'count' => $completedTransactions->count()
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error fetching transactions: ' . $e->getMessage(),
+                'transactions' => [],
+                'count' => 0
+            ], 500);
+        }
     }
 
     /**
