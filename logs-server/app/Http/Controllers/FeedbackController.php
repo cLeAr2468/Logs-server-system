@@ -94,6 +94,7 @@ class FeedbackController extends Controller
 
     /**
      * Get completed transactions without feedback for the authenticated user
+     * SIMPLE VERSION - Same approach as getUserAppointments
      */
     public function getCompletedTransactionsWithoutFeedback(Request $request)
     {
@@ -105,29 +106,36 @@ class FeedbackController extends Controller
                     'success' => false,
                     'message' => 'Unauthorized',
                     'transactions' => [],
-                    'count' => 0
                 ], 401);
             }
 
-            // Get completed transactions for this user that don't have feedback yet
-            $completedTransactions = \App\Models\Transaction::where('user_id', $user->id)
+            // Get ALL completed transactions for this user
+            $completedTransactions = \DB::table('transactions')
+                ->where('user_id', $user->id)
                 ->where('status', 'completed')
-                ->whereDoesntHave('feedback')
+                ->whereNotIn('id', function($query) use ($user) {
+                    $query->select('transaction_id')
+                          ->from('feedback')
+                          ->where('user_id', $user->id)
+                          ->whereNotNull('transaction_id');
+                })
                 ->orderBy('schedule_date', 'desc')
-                ->get(['id', 'purpose', 'schedule_date', 'time_slot', 'created_at']);
+                ->select('id', 'purpose', 'schedule_date', 'time_slot', 'created_at')
+                ->get();
 
             return response()->json([
                 'success' => true,
                 'transactions' => $completedTransactions,
-                'count' => $completedTransactions->count()
+                'count' => count($completedTransactions)
             ], 200);
         } catch (\Exception $e) {
-            \Log::error('Error in getCompletedTransactionsWithoutFeedback: ' . $e->getMessage());
+            \Log::error('Feedback API Error: ' . $e->getMessage());
+            \Log::error($e->getTraceAsString());
+            
             return response()->json([
                 'success' => false,
-                'message' => 'Error fetching transactions: ' . $e->getMessage(),
+                'message' => 'Server error: ' . $e->getMessage(),
                 'transactions' => [],
-                'count' => 0
             ], 500);
         }
     }
