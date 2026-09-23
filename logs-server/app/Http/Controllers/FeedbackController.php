@@ -112,11 +112,7 @@ class FeedbackController extends Controller
             // Get completed transactions for this user that don't have feedback yet
             $completedTransactions = \App\Models\Transaction::where('user_id', $user->id)
                 ->where('status', 'completed')
-                ->whereNotExists(function ($query) {
-                    $query->select(\DB::raw(1))
-                          ->from('feedback')
-                          ->whereColumn('feedback.transaction_id', 'transactions.id');
-                })
+                ->whereDoesntHave('feedback')
                 ->orderBy('schedule_date', 'desc')
                 ->get(['id', 'purpose', 'schedule_date', 'time_slot', 'created_at']);
 
@@ -126,6 +122,7 @@ class FeedbackController extends Controller
                 'count' => $completedTransactions->count()
             ], 200);
         } catch (\Exception $e) {
+            \Log::error('Error in getCompletedTransactionsWithoutFeedback: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
                 'message' => 'Error fetching transactions: ' . $e->getMessage(),
