@@ -38,7 +38,7 @@ class Transaction extends Model
      */
     public function feedback()
     {
-        return $this->hasOne(Feedback::class);
+        return $this->hasOne(Feedback::class, 'transaction_id', 'id');
     }
 
     /**
