@@ -148,7 +148,7 @@ class FeedbackController extends Controller
         $user = $request->user();
 
         $feedback = Feedback::where('user_id', $user->id)
-            ->where('transaction_id', $transactionId)
+            ->where('id', $transactionId)
             ->with('transaction:id,purpose,schedule_date')
             ->first();
 
