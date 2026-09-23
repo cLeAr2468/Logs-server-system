@@ -67,7 +67,7 @@ class FeedbackController extends Controller
 
         // Check if feedback already exists for this transaction
         $existingFeedback = Feedback::where('user_id', $user->id)
-            ->where('transaction_id', $transactionId)
+            ->where('transact_id', $transactionId)
             ->first();
 
         if ($existingFeedback) {
@@ -78,7 +78,7 @@ class FeedbackController extends Controller
 
         $feedback = Feedback::create([
             'user_id' => $user->id,
-            'transaction_id' => $transactionId,
+            'transact_id' => $transactionId,
             'rating' => $request->rating,
             'message' => $request->message,
         ]);
@@ -110,14 +110,13 @@ class FeedbackController extends Controller
             }
 
             // Get completed transactions WITHOUT feedback
-            // Check feedback table's transaction_id column to exclude transactions with feedback
             $completedTransactions = \DB::table('transactions')
                 ->where('user_id', $user->id)
                 ->where('status', 'completed')
                 ->whereNotExists(function($query) use ($user) {
                     $query->select(\DB::raw(1))
                           ->from('feedback')
-                          ->whereColumn('feedback.id', '=', 'transactions.id')
+                          ->whereColumn('feedback.transact_id', '=', 'transactions.id')
                           ->where('feedback.user_id', $user->id);
                 })
                 ->orderBy('schedule_date', 'desc')
@@ -149,7 +148,7 @@ class FeedbackController extends Controller
         $user = $request->user();
 
         $feedback = Feedback::where('user_id', $user->id)
-            ->where('id', $transactionId)
+            ->where('transact_id', $transactionId)
             ->with('transaction:id,purpose,schedule_date')
             ->first();
 
