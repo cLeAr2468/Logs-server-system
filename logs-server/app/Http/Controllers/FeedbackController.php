@@ -114,10 +114,10 @@ class FeedbackController extends Controller
                 ->where('user_id', $user->id)
                 ->where('status', 'completed')
                 ->whereNotIn('id', function($query) use ($user) {
-                    $query->select('transaction_id')
+                    $query->select('id')
                           ->from('feedback')
                           ->where('user_id', $user->id)
-                          ->whereNotNull('transaction_id');
+                          ->whereNotNull('id');
                 })
                 ->orderBy('schedule_date', 'desc')
                 ->select('id', 'purpose', 'schedule_date', 'time_slot', 'created_at')
