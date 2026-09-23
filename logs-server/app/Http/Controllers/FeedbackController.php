@@ -109,15 +109,16 @@ class FeedbackController extends Controller
                 ], 401);
             }
 
-            // Get ALL completed transactions for this user
+            // Get completed transactions WITHOUT feedback
+            // Check feedback table's transaction_id column to exclude transactions with feedback
             $completedTransactions = \DB::table('transactions')
                 ->where('user_id', $user->id)
                 ->where('status', 'completed')
-                ->whereNotIn('id', function($query) use ($user) {
-                    $query->select('id')
+                ->whereNotExists(function($query) use ($user) {
+                    $query->select(\DB::raw(1))
                           ->from('feedback')
-                          ->where('user_id', $user->id)
-                          ->whereNotNull('id');
+                          ->whereColumn('feedback.id', '=', 'transactions.id')
+                          ->where('feedback.user_id', $user->id);
                 })
                 ->orderBy('schedule_date', 'desc')
                 ->select('id', 'purpose', 'schedule_date', 'time_slot', 'created_at')
