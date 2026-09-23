@@ -12,7 +12,10 @@ class FeedbackController extends Controller
      */
     public function index(Request $request)
     {
-        $query = Feedback::with('user:id,fname,mname,lname,email,student_id')
+        $query = Feedback::with([
+            'user:id,fname,mname,lname,email,student_id',
+            'transaction:id,purpose,schedule_date,time_slot,status'
+        ])
             ->orderBy('created_at', 'desc');
 
         // Filter by rating if provided
@@ -163,7 +166,10 @@ class FeedbackController extends Controller
      */
     public function show($id)
     {
-        $feedback = Feedback::with('user:id,fname,mname,lname,email,student_id')
+        $feedback = Feedback::with([
+            'user:id,fname,mname,lname,email,student_id',
+            'transaction:id,purpose,schedule_date,time_slot,status'
+        ])
             ->findOrFail($id);
 
         return response()->json([
