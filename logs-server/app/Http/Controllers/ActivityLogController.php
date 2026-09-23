@@ -101,9 +101,11 @@ class ActivityLogController extends Controller
             $userId = $isAdmin ? $user->admin_id : $user->staff_id;
 
             // Get pagination and filter parameters
-            $perPage = $request->input('per_page', 20);
+            $perPage = $request->input('per_page', 10);
             $page = $request->input('page', 1);
             $filterType = $request->input('filter_type'); // 'admin', 'staff', 'client', or null for all
+            $startDate = $request->input('start_date');
+            $endDate = $request->input('end_date');
 
             // Build query
             $query = ActivityLog::query();
@@ -117,6 +119,14 @@ class ActivityLogController extends Controller
                 // Staff sees only their own logs
                 $query->where('user_type', $userType)
                       ->where('user_id', $userId);
+            }
+
+            // Apply date filters if provided
+            if ($startDate) {
+                $query->whereDate('created_at', '>=', $startDate);
+            }
+            if ($endDate) {
+                $query->whereDate('created_at', '<=', $endDate);
             }
 
             $logs = $query->orderBy('created_at', 'desc')

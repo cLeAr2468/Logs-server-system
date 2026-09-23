@@ -124,8 +124,27 @@ class MasterlistController extends Controller
                 'status' => 'Active',
             ]);
 
-            // Log activity (wrapped in try-catch to prevent logging errors from failing the operation)
+            // Get the user who made the creation
             $user = $request->user();
+            $createdBy = 'System Administrator';
+            if ($user) {
+                $createdBy = trim($user->fname . ' ' . $user->lname);
+            }
+
+            // Send welcome email notification
+            try {
+                \Mail::to($masterlist->email)->send(
+                    new \App\Mail\MasterlistCreatedNotification(
+                        $masterlist,
+                        $createdBy
+                    )
+                );
+            } catch (\Exception $mailError) {
+                // Log email error but don't fail the creation
+                \Log::error('Failed to send welcome email notification for masterlist creation: ' . $mailError->getMessage());
+            }
+
+            // Log activity (wrapped in try-catch to prevent logging errors from failing the operation)
             if ($user) {
                 try {
                     ActivityLog::create([
@@ -148,7 +167,7 @@ class MasterlistController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => 'Student added to masterlist successfully!',
+                'message' => 'Student added to masterlist successfully! Welcome email sent.',
                 'data' => $masterlist,
             ], 201);
         } catch (\Exception $e) {
@@ -200,6 +219,9 @@ class MasterlistController extends Controller
         
         try {
             $masterlist = Masterlist::findOrFail($id);
+            
+            // Store old email before update (in case email changes)
+            $oldEmail = $masterlist->email;
 
             // Validate the request
             $validator = Validator::make($request->all(), [
@@ -221,8 +243,9 @@ class MasterlistController extends Controller
                 ], 422);
             }
 
-            // Track changes before update
+            // Track changes before update for email notification
             $changes = [];
+            $changesForEmail = [];
             $fieldLabels = [
                 'student_id' => 'Student ID',
                 'fname' => 'First Name',
@@ -243,13 +266,22 @@ class MasterlistController extends Controller
                     
                     // Handle null/empty values for middle name
                     if ($field === 'mname') {
-                        $oldValue = $oldValue ?: '(empty)';
-                        $newValue = $newValue ?: '(empty)';
+                        $oldValueDisplay = $oldValue ?: '(empty)';
+                        $newValueDisplay = $newValue ?: '(empty)';
+                    } else {
+                        $oldValueDisplay = $oldValue;
+                        $newValueDisplay = $newValue;
                     }
                     
                     // Track only if value actually changed
                     if ($oldValue != $newValue) {
-                        $changes[] = $fieldLabels[$field] . ': "' . $oldValue . '" → "' . $newValue . '"';
+                        // For activity log
+                        $changes[] = $fieldLabels[$field] . ': "' . $oldValueDisplay . '" → "' . $newValueDisplay . '"';
+                        
+                        // For email (with HTML formatting)
+                        $changesForEmail[] = '<span class="change-label">' . $fieldLabels[$field] . ':</span> ' .
+                                           '<span class="old-value">' . htmlspecialchars($oldValueDisplay) . '</span> → ' .
+                                           '<span class="new-value">' . htmlspecialchars($newValueDisplay) . '</span>';
                     }
                 }
             }
@@ -257,8 +289,44 @@ class MasterlistController extends Controller
             // Update masterlist data
             $masterlist->update($request->only($updateableFields));
 
-            // Log activity with detailed changes (wrapped in try-catch to prevent logging errors from failing the operation)
+            // Get the user who made the update
             $user = $request->user();
+            $updatedBy = 'System Administrator';
+            if ($user) {
+                $updatedBy = trim($user->fname . ' ' . $user->lname);
+            }
+
+            // Send email notification if there were actual changes
+            if (!empty($changesForEmail)) {
+                try {
+                    // Send to old email if email was changed, otherwise to current email
+                    $emailToSend = ($oldEmail !== $masterlist->email) ? $oldEmail : $masterlist->email;
+                    
+                    \Mail::to($emailToSend)->send(
+                        new \App\Mail\MasterlistUpdatedNotification(
+                            $masterlist,
+                            $changesForEmail,
+                            $updatedBy
+                        )
+                    );
+                    
+                    // If email was changed, also send to new email
+                    if ($oldEmail !== $masterlist->email) {
+                        \Mail::to($masterlist->email)->send(
+                            new \App\Mail\MasterlistUpdatedNotification(
+                                $masterlist,
+                                $changesForEmail,
+                                $updatedBy
+                            )
+                        );
+                    }
+                } catch (\Exception $mailError) {
+                    // Log email error but don't fail the update
+                    \Log::error('Failed to send email notification for masterlist update: ' . $mailError->getMessage());
+                }
+            }
+
+            // Log activity with detailed changes (wrapped in try-catch to prevent logging errors from failing the operation)
             if ($user) {
                 try {
                     // Build description with specific changes
@@ -291,7 +359,7 @@ class MasterlistController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => 'Masterlist entry updated successfully!',
+                'message' => 'Masterlist entry updated successfully! Email notification sent to student.',
                 'data' => $masterlist,
             ], 200);
         } catch (\Exception $e) {
@@ -321,11 +389,32 @@ class MasterlistController extends Controller
             $masterlist = Masterlist::findOrFail($id);
             $studentName = $masterlist->fname . ' ' . $masterlist->lname;
             $studentId = $masterlist->student_id;
+            $studentEmail = $masterlist->email;
             
+            // Get the user who is deleting
+            $user = $request->user();
+            $deletedBy = 'System Administrator';
+            if ($user) {
+                $deletedBy = trim($user->fname . ' ' . $user->lname);
+            }
+            
+            // Send deletion notification email BEFORE deleting the record
+            try {
+                \Mail::to($studentEmail)->send(
+                    new \App\Mail\MasterlistDeletedNotification(
+                        $masterlist,
+                        $deletedBy
+                    )
+                );
+            } catch (\Exception $mailError) {
+                // Log email error but don't fail the deletion
+                \Log::error('Failed to send deletion email notification for masterlist: ' . $mailError->getMessage());
+            }
+            
+            // Now delete the masterlist entry
             $masterlist->delete();
 
             // Log activity (wrapped in try-catch to prevent logging errors from failing the operation)
-            $user = $request->user();
             if ($user) {
                 try {
                     ActivityLog::create([
@@ -348,7 +437,7 @@ class MasterlistController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => 'Masterlist entry deleted successfully!',
+                'message' => 'Masterlist entry deleted successfully! Deletion notification sent to student.',
             ], 200);
         } catch (\Exception $e) {
             // Rollback on any exception
