@@ -34,6 +34,14 @@ class Transaction extends Model
     }
 
     /**
+     * Get the feedback for this transaction
+     */
+    public function feedback()
+    {
+        return $this->hasOne(Feedback::class);
+    }
+
+    /**
      * Scope to filter by status
      */
     public function scopeByStatus($query, $status)

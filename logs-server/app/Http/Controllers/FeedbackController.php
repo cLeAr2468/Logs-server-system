@@ -40,28 +40,91 @@ class FeedbackController extends Controller
     }
 
     /**
-     * Store new feedback
+     * Store new feedback for a specific transaction
      */
     public function store(Request $request)
     {
         $request->validate([
+            'transaction_id' => 'required|exists:transactions,id',
             'rating' => 'required|integer|min:1|max:5',
             'message' => 'required|string|max:500',
         ]);
 
+        $user = $request->user();
+        $transactionId = $request->transaction_id;
+
+        // Check if transaction belongs to user and is completed
+        $transaction = \App\Models\Transaction::where('id', $transactionId)
+            ->where('user_id', $user->id)
+            ->where('status', 'completed')
+            ->first();
+
+        if (!$transaction) {
+            return response()->json([
+                'message' => 'Transaction not found or not yet completed',
+            ], 404);
+        }
+
+        // Check if feedback already exists for this transaction
+        $existingFeedback = Feedback::where('user_id', $user->id)
+            ->where('transaction_id', $transactionId)
+            ->first();
+
+        if ($existingFeedback) {
+            return response()->json([
+                'message' => 'You have already submitted feedback for this transaction',
+            ], 422);
+        }
+
         $feedback = Feedback::create([
-            'user_id' => $request->user()->id,
+            'user_id' => $user->id,
+            'transaction_id' => $transactionId,
             'rating' => $request->rating,
             'message' => $request->message,
         ]);
 
-        // Load user relationship
-        $feedback->load('user:id,fname,mname,lname,email,student_id');
+        // Load relationships
+        $feedback->load(['user:id,fname,mname,lname,email,student_id', 'transaction:id,purpose,schedule_date']);
 
         return response()->json([
             'message' => 'Feedback submitted successfully',
             'feedback' => $feedback
         ], 201);
+    }
+
+    /**
+     * Get completed transactions without feedback for the authenticated user
+     */
+    public function getCompletedTransactionsWithoutFeedback(Request $request)
+    {
+        $user = $request->user();
+
+        $completedTransactions = \App\Models\Transaction::where('user_id', $user->id)
+            ->where('status', 'completed')
+            ->whereDoesntHave('feedback')
+            ->orderBy('schedule_date', 'desc')
+            ->get(['id', 'purpose', 'schedule_date', 'time_slot', 'created_at']);
+
+        return response()->json([
+            'transactions' => $completedTransactions,
+            'count' => $completedTransactions->count()
+        ]);
+    }
+
+    /**
+     * Check if transaction has feedback
+     */
+    public function checkTransactionFeedback(Request $request, $transactionId)
+    {
+        $user = $request->user();
+
+        $hasFeedback = Feedback::where('user_id', $user->id)
+            ->where('transaction_id', $transactionId)
+            ->exists();
+
+        return response()->json([
+            'has_feedback' => $hasFeedback
+        ]);
     }
 
     /**

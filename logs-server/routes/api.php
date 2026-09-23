@@ -78,6 +78,8 @@ Route::middleware('auth:sanctum')->group(function () {
     // FEEDBACK ROUTES
     Route::post('/feedback', [FeedbackController::class, 'store']);
     Route::get('/my-feedback', [FeedbackController::class, 'getUserFeedback']);
+    Route::get('/completed-transactions-without-feedback', [FeedbackController::class, 'getCompletedTransactionsWithoutFeedback']);
+    Route::get('/transaction/{id}/feedback-status', [FeedbackController::class, 'checkTransactionFeedback']);
     
     // Admin feedback routes
     Route::get('/feedback', [FeedbackController::class, 'index']);
