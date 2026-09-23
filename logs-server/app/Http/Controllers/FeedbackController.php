@@ -112,18 +112,20 @@ class FeedbackController extends Controller
     }
 
     /**
-     * Check if transaction has feedback
+     * Check if transaction has feedback and return the feedback
      */
     public function checkTransactionFeedback(Request $request, $transactionId)
     {
         $user = $request->user();
 
-        $hasFeedback = Feedback::where('user_id', $user->id)
+        $feedback = Feedback::where('user_id', $user->id)
             ->where('transaction_id', $transactionId)
-            ->exists();
+            ->with('transaction:id,purpose,schedule_date')
+            ->first();
 
         return response()->json([
-            'has_feedback' => $hasFeedback
+            'has_feedback' => $feedback ? true : false,
+            'feedback' => $feedback
         ]);
     }
 
