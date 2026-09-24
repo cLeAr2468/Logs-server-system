@@ -9,7 +9,6 @@ class FeedbackController extends Controller
 {
     /**
      * Get all feedback (Admin only)
-     * Only show feedback for completed transactions
      */
     public function index(Request $request)
     {
@@ -17,10 +16,6 @@ class FeedbackController extends Controller
             'user:id,fname,mname,lname,email,student_id',
             'transaction:id,purpose,schedule_date,time_slot,status'
         ])
-            ->whereHas('transaction', function($q) {
-                $q->where('status', 'completed');
-            })
-            ->whereNotNull('transact_id')
             ->orderBy('created_at', 'desc');
 
         // Filter by rating if provided
