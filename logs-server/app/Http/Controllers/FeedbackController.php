@@ -16,7 +16,6 @@ class FeedbackController extends Controller
             'user:id,fname,mname,lname,email,student_id',
             'transaction:id,purpose,schedule_date,time_slot,status'
         ])
-            ->whereNotNull('transact_id') // Only show feedback with valid transaction ID
             ->orderBy('created_at', 'desc');
 
         // Filter by rating if provided
