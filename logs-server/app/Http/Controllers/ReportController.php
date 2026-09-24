@@ -163,17 +163,8 @@ class ReportController extends Controller
         $staffId = $request->user() ? $request->user()->id : null;
         
         try {
-            // Map report types to specific purposes
-            $purposeMapping = [
-                'Student ID Validation Report' => 'ID Validation',
-                'Good Moral Character Certificates' => 'Good Moral Certificate',
-                'Student Clearance Forms Report' => 'Student Clearance',
-                'Affidavits of Loss Report' => 'Affidavit of loss',
-                'Student Handbooks Distribution' => 'Student Handbook',
-                'Certifications and Documents Report' => 'Certifications',
-                'Scholarship Applications Report' => 'Scholarship Requirements',
-                'Documentary Requirements Report' => 'Documentary Requirements',
-            ];
+            // Get all purposes from database for mapping
+            $allPurposes = \App\Models\Purpose::pluck('name')->toArray();
             
             // Build transactions query
             $query = Transaction::with('user');
@@ -186,9 +177,13 @@ class ReportController extends Controller
                 $query->whereDate('created_at', '<=', $endDate);
             }
             
-            // Filter by purpose if report type maps to a specific purpose
-            if (isset($purposeMapping[$reportType])) {
-                $query->where('purpose', $purposeMapping[$reportType]);
+            // Filter by purpose if report type ends with "Report"
+            if (strpos($reportType, ' Report') !== false) {
+                $purposeName = str_replace(' Report', '', $reportType);
+                // Check if this purpose exists in database
+                if (in_array($purposeName, $allPurposes)) {
+                    $query->where('purpose', $purposeName);
+                }
             }
             // For summary reports and detailed reports, include all purposes (no filter)
             // - Student Affairs Services Summary
@@ -606,6 +601,62 @@ class ReportController extends Controller
                 $sheet->setCellValue("B{$row}", $count);
                 $row++;
             }
+            
+            // Add detailed feedback if available
+            if (isset($feedbackData['feedback_details']) && count($feedbackData['feedback_details']) > 0) {
+                $row++; // Empty row
+                
+                $sheet->mergeCells("A{$row}:F{$row}");
+                $sheet->setCellValue("A{$row}", 'DETAILED FEEDBACK');
+                $sheet->getStyle("A{$row}")->getFont()->setBold(true);
+                $row++;
+                
+                // Headers
+                $feedbackHeaders = ['Student Name', 'Student ID', 'Transaction Purpose', 'Rating', 'Feedback Message', 'Date'];
+                $col = 'A';
+                foreach ($feedbackHeaders as $header) {
+                    $sheet->setCellValue("{$col}{$row}", $header);
+                    $col++;
+                }
+                $headerStyle = $sheet->getStyle("A{$row}:F{$row}");
+                $headerStyle->getFont()->setBold(true);
+                $headerStyle->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('15592F');
+                $headerStyle->getFont()->getColor()->setRGB('FFFFFF');
+                $row++;
+                
+                // Data rows
+                foreach ($feedbackData['feedback_details'] as $feedback) {
+                    $studentName = trim(($feedback->user->fname ?? '') . ' ' . ($feedback->user->mname ?? '') . ' ' . ($feedback->user->lname ?? '')) ?: 'N/A';
+                    
+                    $sheet->setCellValue("A{$row}", $studentName);
+                    $sheet->setCellValue("B{$row}", $feedback->user->student_id ?? 'N/A');
+                    $sheet->setCellValue("C{$row}", $feedback->transaction->purpose ?? 'N/A');
+                    $sheet->setCellValue("D{$row}", $feedback->rating . '/5');
+                    $sheet->setCellValue("E{$row}", $feedback->message ?: 'No comment');
+                    $sheet->setCellValue("F{$row}", date('Y-m-d', strtotime($feedback->created_at)));
+                    $row++;
+                }
+            }
+        }
+            $sheet->setCellValue("B{$row}", round($feedbackData['average_rating'], 2) . ' / 5.0');
+            $sheet->getStyle("A{$row}")->getFont()->setBold(true);
+            $row++;
+            
+            $row++; // Empty row
+            
+            $sheet->setCellValue("A{$row}", 'Rating');
+            $sheet->setCellValue("B{$row}", 'Count');
+            $headerStyle = $sheet->getStyle("A{$row}:B{$row}");
+            $headerStyle->getFont()->setBold(true);
+            $headerStyle->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('15592F');
+            $headerStyle->getFont()->getColor()->setRGB('FFFFFF');
+            $row++;
+            
+            foreach ($feedbackData['rating_distribution'] as $rating => $count) {
+                $sheet->setCellValue("A{$row}", $rating . ' stars');
+                $sheet->setCellValue("B{$row}", $count);
+                $row++;
+            }
         }
         
         // Auto-size columns
@@ -724,6 +775,27 @@ class ReportController extends Controller
                 fputcsv($output, [$rating . ' stars', $count]);
             }
             fputcsv($output, []); // Empty line
+            
+            // Add detailed feedback if available
+            if (isset($feedbackData['feedback_details']) && count($feedbackData['feedback_details']) > 0) {
+                fputcsv($output, ['DETAILED FEEDBACK']);
+                fputcsv($output, []); // Empty line
+                fputcsv($output, ['Student Name', 'Student ID', 'Transaction Purpose', 'Rating', 'Feedback Message', 'Date']);
+                
+                foreach ($feedbackData['feedback_details'] as $feedback) {
+                    $studentName = trim(($feedback->user->fname ?? '') . ' ' . ($feedback->user->mname ?? '') . ' ' . ($feedback->user->lname ?? '')) ?: 'N/A';
+                    
+                    fputcsv($output, [
+                        $studentName,
+                        $feedback->user->student_id ?? 'N/A',
+                        $feedback->transaction->purpose ?? 'N/A',
+                        $feedback->rating . '/5',
+                        $feedback->message ?: 'No comment',
+                        date('Y-m-d', strtotime($feedback->created_at))
+                    ]);
+                }
+                fputcsv($output, []); // Empty line
+            }
         }
         
         // If nothing was selected, show a message
@@ -787,7 +859,7 @@ class ReportController extends Controller
      */
     private function getFeedbackData($startDate, $endDate)
     {
-        $query = \App\Models\Feedback::query();
+        $query = \App\Models\Feedback::with(['user', 'transaction']);
         
         if ($startDate) {
             $query->whereDate('created_at', '>=', $startDate);
@@ -808,7 +880,8 @@ class ReportController extends Controller
                 '3' => $feedbacks->where('rating', 3)->count(),
                 '2' => $feedbacks->where('rating', 2)->count(),
                 '1' => $feedbacks->where('rating', 1)->count(),
-            ]
+            ],
+            'feedback_details' => $feedbacks
         ];
     }
     

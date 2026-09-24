@@ -18,6 +18,25 @@
             margin-bottom: 20px;
             padding-bottom: 15px;
             border-bottom: 2px solid #15592F;
+            position: relative;
+        }
+        
+        .logo-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 10px;
+        }
+        
+        .logo {
+            width: 60px;
+            height: 60px;
+            margin-right: 15px;
+        }
+        
+        .header-text {
+            flex: 1;
+            text-align: center;
         }
         
         .university-name {
@@ -195,9 +214,14 @@
 <body>
     <!-- Header -->
     <div class="header">
-        <div class="university-name">NORTHWEST SAMAR STATE UNIVERSITY</div>
-        <div class="campus-name">San Jorge Campus</div>
-        <div class="campus-name">Resilience • Integrity • Service • Excellence</div>
+        <div class="logo-container">
+            <img src="{{ public_path('storage/images/nwssu-logo.png') }}" alt="NWSSU Logo" class="logo" />
+            <div class="header-text">
+                <div class="university-name">NORTHWEST SAMAR STATE UNIVERSITY</div>
+                <div class="campus-name">San Jorge Campus</div>
+                <div class="campus-name">Resilience • Integrity • Service • Excellence</div>
+            </div>
+        </div>
     </div>
     
 
@@ -361,6 +385,34 @@
             @endforeach
         </tbody>
     </table>
+    
+    @if(isset($feedbackData['feedback_details']) && count($feedbackData['feedback_details']) > 0)
+    <div class="section-title">DETAILED FEEDBACK</div>
+    <table>
+        <thead>
+            <tr>
+                <th>Student Name</th>
+                <th>Student ID</th>
+                <th>Transaction Purpose</th>
+                <th style="text-align: center;">Rating</th>
+                <th>Feedback Message</th>
+                <th>Date</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach($feedbackData['feedback_details'] as $feedback)
+            <tr>
+                <td>{{ trim(($feedback->user->fname ?? '') . ' ' . ($feedback->user->lname ?? '')) ?: 'N/A' }}</td>
+                <td>{{ $feedback->user->student_id ?? 'N/A' }}</td>
+                <td>{{ $feedback->transaction->purpose ?? 'N/A' }}</td>
+                <td style="text-align: center;">{{ $feedback->rating }}/5</td>
+                <td>{{ $feedback->message ?: 'No comment' }}</td>
+                <td>{{ date('Y-m-d', strtotime($feedback->created_at)) }}</td>
+            </tr>
+            @endforeach
+        </tbody>
+    </table>
+    @endif
     @endif
     
     <!-- Conclusion Text -->

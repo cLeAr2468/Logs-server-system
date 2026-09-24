@@ -66,7 +66,7 @@ class AnnouncementController extends Controller
                 'title' => 'required|string|max:255',
                 'content' => 'required|string',
                 'cover_image' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
-                'status' => 'required|in:draft,published,archive',
+                'status' => 'required|in:draft,published',
             ]);
 
             // Get the authenticated user (admin or staff)
@@ -198,7 +198,7 @@ class AnnouncementController extends Controller
                 'title' => 'sometimes|required|string|max:255',
                 'content' => 'sometimes|required|string',
                 'cover_image' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
-                'status' => 'sometimes|required|in:draft,published,archive',
+                'status' => 'sometimes|required|in:draft,published',
             ]);
 
             // Update fields
