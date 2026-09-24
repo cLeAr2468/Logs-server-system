@@ -34,6 +34,6 @@ class Feedback extends Model
 
     public function transaction()
     {
-        return $this->belongsTo(Transaction::class);
+        return $this->belongsTo(Transaction::class, 'transact_id');
     }
 }
