@@ -44,9 +44,12 @@ class Feedback extends Model
             return null;
         }
 
+        // Normalize the date for consistent comparison
+        $normalizedDate = \Carbon\Carbon::parse($this->transaction_date)->format('Y-m-d');
+
         return Transaction::where('user_id', $this->user_id)
             ->where('purpose', $this->transaction_purpose)
-            ->where('schedule_date', $this->transaction_date)
+            ->whereDate('schedule_date', $normalizedDate)
             ->first();
     }
 }
