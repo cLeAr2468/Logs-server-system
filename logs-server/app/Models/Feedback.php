@@ -44,12 +44,23 @@ class Feedback extends Model
             return null;
         }
 
-        // Normalize the date for consistent comparison
-        $normalizedDate = \Carbon\Carbon::parse($this->transaction_date)->format('Y-m-d');
+        try {
+            // Normalize the date for consistent comparison
+            $normalizedDate = \Carbon\Carbon::parse($this->transaction_date)->format('Y-m-d');
 
-        return Transaction::where('user_id', $this->user_id)
-            ->where('purpose', $this->transaction_purpose)
-            ->whereDate('schedule_date', $normalizedDate)
-            ->first();
+            return Transaction::where('user_id', $this->user_id)
+                ->where('purpose', $this->transaction_purpose)
+                ->whereDate('schedule_date', $normalizedDate)
+                ->first();
+        } catch (\Exception $e) {
+            \Log::warning('Failed to retrieve transaction_data for feedback', [
+                'feedback_id' => $this->id,
+                'user_id' => $this->user_id,
+                'purpose' => $this->transaction_purpose,
+                'date' => $this->transaction_date,
+                'error' => $e->getMessage()
+            ]);
+            return null;
+        }
     }
 }

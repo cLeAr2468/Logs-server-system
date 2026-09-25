@@ -889,31 +889,50 @@ class ReportController extends Controller
      */
     private function getFeedbackData($startDate, $endDate)
     {
-        $query = \App\Models\Feedback::with('user');
-        
-        if ($startDate) {
-            $query->whereDate('created_at', '>=', $startDate);
+        try {
+            $query = \App\Models\Feedback::with('user');
+            
+            if ($startDate) {
+                $query->whereDate('created_at', '>=', $startDate);
+            }
+            
+            if ($endDate) {
+                $query->whereDate('created_at', '<=', $endDate);
+            }
+            
+            $feedbacks = $query->get();
+            // transaction_data is automatically appended via accessor
+            
+            return [
+                'total_feedback' => $feedbacks->count(),
+                'average_rating' => $feedbacks->count() > 0 ? round($feedbacks->avg('rating'), 2) : 0,
+                'rating_distribution' => [
+                    '5' => $feedbacks->where('rating', 5)->count(),
+                    '4' => $feedbacks->where('rating', 4)->count(),
+                    '3' => $feedbacks->where('rating', 3)->count(),
+                    '2' => $feedbacks->where('rating', 2)->count(),
+                    '1' => $feedbacks->where('rating', 1)->count(),
+                ],
+                'feedback_details' => $feedbacks
+            ];
+        } catch (\Exception $e) {
+            \Log::error('Error fetching feedback data for report: ' . $e->getMessage());
+            \Log::error($e->getTraceAsString());
+            
+            // Return empty data structure to prevent breaking the report
+            return [
+                'total_feedback' => 0,
+                'average_rating' => 0,
+                'rating_distribution' => [
+                    '5' => 0,
+                    '4' => 0,
+                    '3' => 0,
+                    '2' => 0,
+                    '1' => 0,
+                ],
+                'feedback_details' => collect([])
+            ];
         }
-        
-        if ($endDate) {
-            $query->whereDate('created_at', '<=', $endDate);
-        }
-        
-        $feedbacks = $query->get();
-        // transaction_data is automatically appended via accessor
-        
-        return [
-            'total_feedback' => $feedbacks->count(),
-            'average_rating' => $feedbacks->count() > 0 ? $feedbacks->avg('rating') : 0,
-            'rating_distribution' => [
-                '5' => $feedbacks->where('rating', 5)->count(),
-                '4' => $feedbacks->where('rating', 4)->count(),
-                '3' => $feedbacks->where('rating', 3)->count(),
-                '2' => $feedbacks->where('rating', 2)->count(),
-                '1' => $feedbacks->where('rating', 1)->count(),
-            ],
-            'feedback_details' => $feedbacks
-        ];
     }
     
     /**
