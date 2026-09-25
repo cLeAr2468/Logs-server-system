@@ -66,9 +66,10 @@ class FeedbackController extends Controller
             ], 404);
         }
 
-        // Check if feedback already exists for this user (one feedback per user regardless of transaction)
+        // Check if feedback already exists for THIS SPECIFIC transaction
         $existingFeedback = Feedback::where('user_id', $user->id)
-            ->where('created_at', '>=', $transaction->created_at)
+            ->where('transaction_purpose', $transaction->purpose)
+            ->where('transaction_date', $transaction->schedule_date)
             ->first();
 
         if ($existingFeedback) {
@@ -79,6 +80,8 @@ class FeedbackController extends Controller
 
         $feedback = Feedback::create([
             'user_id' => $user->id,
+            'transaction_purpose' => $transaction->purpose,
+            'transaction_date' => $transaction->schedule_date,
             'rating' => $request->rating,
             'message' => $request->message,
         ]);
@@ -108,7 +111,7 @@ class FeedbackController extends Controller
                 ], 401);
             }
 
-            // Get all completed transactions for the user
+            // Get all completed transactions
             $completedTransactions = \DB::table('transactions')
                 ->where('user_id', $user->id)
                 ->where('status', 'completed')
@@ -116,23 +119,20 @@ class FeedbackController extends Controller
                 ->select('id', 'purpose', 'schedule_date', 'time_slot', 'created_at')
                 ->get();
 
-            // Get feedback timestamps for this user
-            $feedbackTimestamps = \DB::table('feedback')
+            // Get all feedback for this user
+            $userFeedback = \DB::table('feedback')
                 ->where('user_id', $user->id)
-                ->pluck('created_at')
-                ->toArray();
+                ->select('transaction_purpose', 'transaction_date')
+                ->get();
 
             // Filter out transactions that already have feedback
-            // (transactions created before any feedback timestamp)
-            $transactionsWithoutFeedback = $completedTransactions->filter(function($transaction) use ($feedbackTimestamps, $user) {
-                // Check if there's any feedback created after this transaction
-                $hasFeedback = false;
-                foreach ($feedbackTimestamps as $feedbackTime) {
-                    if (strtotime($feedbackTime) >= strtotime($transaction->created_at)) {
-                        $hasFeedback = true;
-                        break;
-                    }
-                }
+            $transactionsWithoutFeedback = $completedTransactions->filter(function($transaction) use ($userFeedback) {
+                // Check if there's feedback for this specific transaction
+                $hasFeedback = $userFeedback->contains(function($feedback) use ($transaction) {
+                    return $feedback->transaction_purpose === $transaction->purpose 
+                        && $feedback->transaction_date === $transaction->schedule_date;
+                });
+                
                 return !$hasFeedback;
             });
 
@@ -172,9 +172,10 @@ class FeedbackController extends Controller
             ]);
         }
 
-        // Check if there's feedback created after this transaction
+        // Check if there's feedback for THIS SPECIFIC transaction
         $feedback = Feedback::where('user_id', $user->id)
-            ->where('created_at', '>=', $transaction->created_at)
+            ->where('transaction_purpose', $transaction->purpose)
+            ->where('transaction_date', $transaction->schedule_date)
             ->with('user:id,fname,mname,lname,email,student_id')
             ->first();
 

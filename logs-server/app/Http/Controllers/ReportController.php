@@ -655,10 +655,11 @@ class ReportController extends Controller
                 // Data rows
                 foreach ($feedbackData['feedback_details'] as $feedback) {
                     $studentName = trim(($feedback->user->fname ?? '') . ' ' . ($feedback->user->mname ?? '') . ' ' . ($feedback->user->lname ?? '')) ?: 'N/A';
+                    $purpose = $feedback->transaction_purpose ?? ($feedback->transaction_data->purpose ?? 'N/A');
                     
                     $sheet->setCellValue("A{$row}", $studentName);
                     $sheet->setCellValue("B{$row}", $feedback->user->student_id ?? 'N/A');
-                    $sheet->setCellValue("C{$row}", $feedback->transaction_data->purpose ?? 'N/A');
+                    $sheet->setCellValue("C{$row}", $purpose);
                     $sheet->setCellValue("D{$row}", $feedback->rating . '/5');
                     $sheet->setCellValue("E{$row}", $feedback->message ?: 'No comment');
                     $sheet->setCellValue("F{$row}", date('Y-m-d', strtotime($feedback->created_at)));
@@ -812,11 +813,12 @@ class ReportController extends Controller
                 
                 foreach ($feedbackData['feedback_details'] as $feedback) {
                     $studentName = trim(($feedback->user->fname ?? '') . ' ' . ($feedback->user->mname ?? '') . ' ' . ($feedback->user->lname ?? '')) ?: 'N/A';
+                    $purpose = $feedback->transaction_purpose ?? ($feedback->transaction_data->purpose ?? 'N/A');
                     
                     fputcsv($output, [
                         $studentName,
                         $feedback->user->student_id ?? 'N/A',
-                        $feedback->transaction_data->purpose ?? 'N/A',
+                        $purpose,
                         $feedback->rating . '/5',
                         $feedback->message ?: 'No comment',
                         date('Y-m-d', strtotime($feedback->created_at))

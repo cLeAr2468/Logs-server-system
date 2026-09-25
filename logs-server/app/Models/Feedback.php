@@ -13,6 +13,8 @@ class Feedback extends Model
 
     protected $fillable = [
         'user_id',
+        'transaction_purpose',
+        'transaction_date',
         'rating',
         'message',
     ];
@@ -34,14 +36,17 @@ class Feedback extends Model
     }
 
     /**
-     * Get the transaction data dynamically based on user's most recent completed transaction
+     * Get the transaction data based on stored reference
      */
     public function getTransactionDataAttribute()
     {
+        if (!$this->transaction_purpose || !$this->transaction_date) {
+            return null;
+        }
+
         return Transaction::where('user_id', $this->user_id)
-            ->where('status', 'completed')
-            ->where('created_at', '<=', $this->created_at)
-            ->orderBy('created_at', 'desc')
+            ->where('purpose', $this->transaction_purpose)
+            ->where('schedule_date', $this->transaction_date)
             ->first();
     }
 }
