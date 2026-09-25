@@ -46,17 +46,18 @@ class FeedbackController extends Controller
     public function store(Request $request)
     {
         $request->validate([
-            'transaction_id' => 'required|exists:transactions,id',
+            'transaction_purpose' => 'required|string|max:255',
+            'transaction_date' => 'required|date',
             'rating' => 'required|integer|min:1|max:5',
             'message' => 'required|string|max:500',
         ]);
 
         $user = $request->user();
-        $transactionId = $request->transaction_id;
 
-        // Check if transaction belongs to user and is completed
-        $transaction = \App\Models\Transaction::where('id', $transactionId)
-            ->where('user_id', $user->id)
+        // Verify that this transaction exists, belongs to user, and is completed
+        $transaction = \App\Models\Transaction::where('user_id', $user->id)
+            ->where('purpose', $request->transaction_purpose)
+            ->where('schedule_date', $request->transaction_date)
             ->where('status', 'completed')
             ->first();
 
@@ -68,8 +69,8 @@ class FeedbackController extends Controller
 
         // Check if feedback already exists for THIS SPECIFIC transaction
         $existingFeedback = Feedback::where('user_id', $user->id)
-            ->where('transaction_purpose', $transaction->purpose)
-            ->where('transaction_date', $transaction->schedule_date)
+            ->where('transaction_purpose', $request->transaction_purpose)
+            ->where('transaction_date', $request->transaction_date)
             ->first();
 
         if ($existingFeedback) {
@@ -80,13 +81,13 @@ class FeedbackController extends Controller
 
         $feedback = Feedback::create([
             'user_id' => $user->id,
-            'transaction_purpose' => $transaction->purpose,
-            'transaction_date' => $transaction->schedule_date,
+            'transaction_purpose' => $request->transaction_purpose,
+            'transaction_date' => $request->transaction_date,
             'rating' => $request->rating,
             'message' => $request->message,
         ]);
 
-        // Load relationships - transaction will be dynamically retrieved
+        // Load user relationship
         $feedback->load('user:id,fname,mname,lname,email,student_id');
 
         return response()->json([
