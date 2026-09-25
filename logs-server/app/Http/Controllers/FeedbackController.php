@@ -12,10 +12,7 @@ class FeedbackController extends Controller
      */
     public function index(Request $request)
     {
-        $query = Feedback::with([
-            'user:id,fname,mname,lname,email,student_id',
-            'transaction:id,purpose,schedule_date,time_slot,status'
-        ])
+        $query = Feedback::with('user:id,fname,mname,lname,email,student_id')
             ->orderBy('created_at', 'desc');
 
         // Filter by rating if provided
@@ -69,9 +66,9 @@ class FeedbackController extends Controller
             ], 404);
         }
 
-        // Check if feedback already exists for this transaction
+        // Check if feedback already exists for this user (one feedback per user regardless of transaction)
         $existingFeedback = Feedback::where('user_id', $user->id)
-            ->where('transact_id', $transactionId)
+            ->where('created_at', '>=', $transaction->created_at)
             ->first();
 
         if ($existingFeedback) {
@@ -82,13 +79,12 @@ class FeedbackController extends Controller
 
         $feedback = Feedback::create([
             'user_id' => $user->id,
-            'transact_id' => $transactionId,
             'rating' => $request->rating,
             'message' => $request->message,
         ]);
 
-        // Load relationships
-        $feedback->load(['user:id,fname,mname,lname,email,student_id', 'transaction:id,purpose,schedule_date']);
+        // Load relationships - transaction will be dynamically retrieved
+        $feedback->load('user:id,fname,mname,lname,email,student_id');
 
         return response()->json([
             'message' => 'Feedback submitted successfully',
@@ -98,7 +94,6 @@ class FeedbackController extends Controller
 
     /**
      * Get completed transactions without feedback for the authenticated user
-     * SIMPLE VERSION - Same approach as getUserAppointments
      */
     public function getCompletedTransactionsWithoutFeedback(Request $request)
     {
@@ -113,24 +108,38 @@ class FeedbackController extends Controller
                 ], 401);
             }
 
-            // Get completed transactions WITHOUT feedback
+            // Get all completed transactions for the user
             $completedTransactions = \DB::table('transactions')
                 ->where('user_id', $user->id)
                 ->where('status', 'completed')
-                ->whereNotExists(function($query) use ($user) {
-                    $query->select(\DB::raw(1))
-                          ->from('feedback')
-                          ->whereColumn('feedback.transact_id', '=', 'transactions.id')
-                          ->where('feedback.user_id', $user->id);
-                })
                 ->orderBy('schedule_date', 'desc')
                 ->select('id', 'purpose', 'schedule_date', 'time_slot', 'created_at')
                 ->get();
 
+            // Get feedback timestamps for this user
+            $feedbackTimestamps = \DB::table('feedback')
+                ->where('user_id', $user->id)
+                ->pluck('created_at')
+                ->toArray();
+
+            // Filter out transactions that already have feedback
+            // (transactions created before any feedback timestamp)
+            $transactionsWithoutFeedback = $completedTransactions->filter(function($transaction) use ($feedbackTimestamps, $user) {
+                // Check if there's any feedback created after this transaction
+                $hasFeedback = false;
+                foreach ($feedbackTimestamps as $feedbackTime) {
+                    if (strtotime($feedbackTime) >= strtotime($transaction->created_at)) {
+                        $hasFeedback = true;
+                        break;
+                    }
+                }
+                return !$hasFeedback;
+            });
+
             return response()->json([
                 'success' => true,
-                'transactions' => $completedTransactions,
-                'count' => count($completedTransactions)
+                'transactions' => $transactionsWithoutFeedback->values(),
+                'count' => $transactionsWithoutFeedback->count()
             ], 200);
         } catch (\Exception $e) {
             \Log::error('Feedback API Error: ' . $e->getMessage());
@@ -151,14 +160,27 @@ class FeedbackController extends Controller
     {
         $user = $request->user();
 
+        // Get the transaction
+        $transaction = \App\Models\Transaction::where('id', $transactionId)
+            ->where('user_id', $user->id)
+            ->first();
+
+        if (!$transaction) {
+            return response()->json([
+                'has_feedback' => false,
+                'feedback' => null
+            ]);
+        }
+
+        // Check if there's feedback created after this transaction
         $feedback = Feedback::where('user_id', $user->id)
-            ->where('transact_id', $transactionId)
-            ->with('transaction:id,purpose,schedule_date')
+            ->where('created_at', '>=', $transaction->created_at)
+            ->with('user:id,fname,mname,lname,email,student_id')
             ->first();
 
         return response()->json([
             'has_feedback' => $feedback ? true : false,
-            'feedback' => $feedback
+            'feedback' => $feedback // transaction_data is automatically appended
         ]);
     }
 

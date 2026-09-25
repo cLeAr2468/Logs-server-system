@@ -13,7 +13,6 @@ class Feedback extends Model
 
     protected $fillable = [
         'user_id',
-        'transact_id',
         'rating',
         'message',
     ];
@@ -24,6 +23,8 @@ class Feedback extends Model
         'updated_at' => 'datetime',
     ];
 
+    protected $appends = ['transaction_data'];
+
     /**
      * Get the user that owns the feedback
      */
@@ -32,8 +33,15 @@ class Feedback extends Model
         return $this->belongsTo(User::class);
     }
 
-    public function transaction()
+    /**
+     * Get the transaction data dynamically based on user's most recent completed transaction
+     */
+    public function getTransactionDataAttribute()
     {
-        return $this->belongsTo(Transaction::class, 'transact_id');
+        return Transaction::where('user_id', $this->user_id)
+            ->where('status', 'completed')
+            ->where('created_at', '<=', $this->created_at)
+            ->orderBy('created_at', 'desc')
+            ->first();
     }
 }

@@ -404,7 +404,7 @@
             <tr>
                 <td>{{ trim(($feedback->user->fname ?? '') . ' ' . ($feedback->user->lname ?? '')) ?: 'N/A' }}</td>
                 <td>{{ $feedback->user->student_id ?? 'N/A' }}</td>
-                <td>{{ $feedback->transaction->purpose ?? 'N/A' }}</td>
+                <td>{{ $feedback->transaction_data->purpose ?? 'N/A' }}</td>
                 <td style="text-align: center;">{{ $feedback->rating }}/5</td>
                 <td>{{ $feedback->message ?: 'No comment' }}</td>
                 <td>{{ date('Y-m-d', strtotime($feedback->created_at)) }}</td>

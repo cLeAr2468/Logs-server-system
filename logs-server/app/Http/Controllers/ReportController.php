@@ -658,7 +658,7 @@ class ReportController extends Controller
                     
                     $sheet->setCellValue("A{$row}", $studentName);
                     $sheet->setCellValue("B{$row}", $feedback->user->student_id ?? 'N/A');
-                    $sheet->setCellValue("C{$row}", $feedback->transaction->purpose ?? 'N/A');
+                    $sheet->setCellValue("C{$row}", $feedback->transaction_data->purpose ?? 'N/A');
                     $sheet->setCellValue("D{$row}", $feedback->rating . '/5');
                     $sheet->setCellValue("E{$row}", $feedback->message ?: 'No comment');
                     $sheet->setCellValue("F{$row}", date('Y-m-d', strtotime($feedback->created_at)));
@@ -816,7 +816,7 @@ class ReportController extends Controller
                     fputcsv($output, [
                         $studentName,
                         $feedback->user->student_id ?? 'N/A',
-                        $feedback->transaction->purpose ?? 'N/A',
+                        $feedback->transaction_data->purpose ?? 'N/A',
                         $feedback->rating . '/5',
                         $feedback->message ?: 'No comment',
                         date('Y-m-d', strtotime($feedback->created_at))
@@ -887,8 +887,7 @@ class ReportController extends Controller
      */
     private function getFeedbackData($startDate, $endDate)
     {
-        $query = \App\Models\Feedback::with(['user', 'transaction'])
-            ->whereNotNull('transact_id'); // Only get feedback with valid transaction ID
+        $query = \App\Models\Feedback::with('user');
         
         if ($startDate) {
             $query->whereDate('created_at', '>=', $startDate);
@@ -899,6 +898,7 @@ class ReportController extends Controller
         }
         
         $feedbacks = $query->get();
+        // transaction_data is automatically appended via accessor
         
         return [
             'total_feedback' => $feedbacks->count(),
