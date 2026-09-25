@@ -25,7 +25,8 @@ class Feedback extends Model
         'updated_at' => 'datetime',
     ];
 
-    protected $appends = ['transaction_data'];
+    // Remove $appends to prevent automatic loading of transaction_data
+    // Only load it when explicitly requested
 
     /**
      * Get the user that owns the feedback
@@ -37,6 +38,7 @@ class Feedback extends Model
 
     /**
      * Get the transaction data based on stored reference
+     * Only call this manually when needed, not automatically
      */
     public function getTransactionDataAttribute()
     {

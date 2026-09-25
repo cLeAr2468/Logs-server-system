@@ -667,26 +667,6 @@ class ReportController extends Controller
                 }
             }
         }
-            $sheet->setCellValue("B{$row}", round($feedbackData['average_rating'], 2) . ' / 5.0');
-            $sheet->getStyle("A{$row}")->getFont()->setBold(true);
-            $row++;
-            
-            $row++; // Empty row
-            
-            $sheet->setCellValue("A{$row}", 'Rating');
-            $sheet->setCellValue("B{$row}", 'Count');
-            $headerStyle = $sheet->getStyle("A{$row}:B{$row}");
-            $headerStyle->getFont()->setBold(true);
-            $headerStyle->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('15592F');
-            $headerStyle->getFont()->getColor()->setRGB('FFFFFF');
-            $row++;
-            
-            foreach ($feedbackData['rating_distribution'] as $rating => $count) {
-                $sheet->setCellValue("A{$row}", $rating . ' stars');
-                $sheet->setCellValue("B{$row}", $count);
-                $row++;
-            }
-        }
         
         // Auto-size columns
         foreach (range('A', 'I') as $col) {
