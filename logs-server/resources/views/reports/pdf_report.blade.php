@@ -372,42 +372,49 @@
     <table>
         <thead>
             <tr>
-                <th style="width: 50%;">Rating</th>
-                <th style="width: 50%; text-align: center;">Count</th>
+                <th style="width: 40%;">Rating</th>
+                <th style="width: 30%; text-align: center;">Count</th>
+                <th style="width: 30%; text-align: center;">Percentage</th>
             </tr>
         </thead>
         <tbody>
+            @php
+                $totalFeedback = $feedbackData['total_feedback'];
+            @endphp
             @foreach($feedbackData['rating_distribution'] as $rating => $count)
             <tr>
                 <td>{{ $rating }} stars</td>
                 <td style="text-align: center;">{{ number_format($count) }}</td>
+                <td style="text-align: center;">{{ $totalFeedback > 0 ? round(($count / $totalFeedback) * 100, 1) : 0 }}%</td>
             </tr>
             @endforeach
         </tbody>
     </table>
     
     @if(isset($feedbackData['feedback_details']) && count($feedbackData['feedback_details']) > 0)
-    <div class="section-title">DETAILED FEEDBACK</div>
+    <div class="section-title">DETAILED FEEDBACK (PER TRANSACTION)</div>
     <table>
         <thead>
             <tr>
                 <th>Student Name</th>
                 <th>Student ID</th>
                 <th>Transaction Purpose</th>
+                <th>Transaction Date</th>
                 <th style="text-align: center;">Rating</th>
                 <th>Feedback Message</th>
-                <th>Date</th>
+                <th>Submitted Date</th>
             </tr>
         </thead>
         <tbody>
             @foreach($feedbackData['feedback_details'] as $feedback)
             <tr>
-                <td>{{ trim(($feedback->user->fname ?? '') . ' ' . ($feedback->user->lname ?? '')) ?: 'N/A' }}</td>
+                <td>{{ trim(($feedback->user->fname ?? '') . ' ' . ($feedback->user->mname ?? '') . ' ' . ($feedback->user->lname ?? '')) ?: 'N/A' }}</td>
                 <td>{{ $feedback->user->student_id ?? 'N/A' }}</td>
-                <td>{{ $feedback->transaction_purpose ?? $feedback->transaction_data->purpose ?? 'N/A' }}</td>
+                <td>{{ $feedback->transaction_purpose ?? 'N/A' }}</td>
+                <td>{{ date('M d, Y', strtotime($feedback->transaction_date ?? $feedback->created_at)) }}</td>
                 <td style="text-align: center;">{{ $feedback->rating }}/5</td>
-                <td>{{ $feedback->message ?: 'No comment' }}</td>
-                <td>{{ date('Y-m-d', strtotime($feedback->created_at)) }}</td>
+                <td>{{ $feedback->message ?: 'No comment provided' }}</td>
+                <td>{{ date('M d, Y', strtotime($feedback->created_at)) }}</td>
             </tr>
             @endforeach
         </tbody>

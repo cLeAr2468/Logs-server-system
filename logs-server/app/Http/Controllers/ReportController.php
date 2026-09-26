@@ -597,7 +597,7 @@ class ReportController extends Controller
         if ($includeFeedback && $feedbackData) {
             $sheet->mergeCells("A{$row}:I{$row}");
             $sheet->setCellValue("A{$row}", 'FEEDBACK SUMMARY');
-            $sheet->getStyle("A{$row}")->getFont()->setBold(true);
+            $sheet->getStyle("A{$row}")->getFont()->setBold(true)->setSize(14);
             $sheet->getStyle("A{$row}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('15592F');
             $sheet->getStyle("A{$row}")->getFont()->getColor()->setRGB('FFFFFF');
             $row++;
@@ -616,37 +616,48 @@ class ReportController extends Controller
             
             $row++; // Empty row
             
+            $sheet->setCellValue("A{$row}", 'RATING DISTRIBUTION');
+            $sheet->getStyle("A{$row}")->getFont()->setBold(true);
+            $row++;
+            
             $sheet->setCellValue("A{$row}", 'Rating');
             $sheet->setCellValue("B{$row}", 'Count');
-            $headerStyle = $sheet->getStyle("A{$row}:B{$row}");
+            $sheet->setCellValue("C{$row}", 'Percentage');
+            $headerStyle = $sheet->getStyle("A{$row}:C{$row}");
             $headerStyle->getFont()->setBold(true);
             $headerStyle->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('15592F');
             $headerStyle->getFont()->getColor()->setRGB('FFFFFF');
             $row++;
             
+            $totalFeedback = $feedbackData['total_feedback'];
             foreach ($feedbackData['rating_distribution'] as $rating => $count) {
+                $percentage = $totalFeedback > 0 ? round(($count / $totalFeedback) * 100, 1) : 0;
                 $sheet->setCellValue("A{$row}", $rating . ' stars');
                 $sheet->setCellValue("B{$row}", $count);
+                $sheet->setCellValue("C{$row}", $percentage . '%');
                 $row++;
             }
             
             // Add detailed feedback if available
             if (isset($feedbackData['feedback_details']) && count($feedbackData['feedback_details']) > 0) {
                 $row++; // Empty row
+                $row++; // Empty row
                 
-                $sheet->mergeCells("A{$row}:F{$row}");
-                $sheet->setCellValue("A{$row}", 'DETAILED FEEDBACK');
-                $sheet->getStyle("A{$row}")->getFont()->setBold(true);
+                $sheet->mergeCells("A{$row}:G{$row}");
+                $sheet->setCellValue("A{$row}", 'DETAILED FEEDBACK (PER TRANSACTION)');
+                $sheet->getStyle("A{$row}")->getFont()->setBold(true)->setSize(12);
+                $sheet->getStyle("A{$row}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('15592F');
+                $sheet->getStyle("A{$row}")->getFont()->getColor()->setRGB('FFFFFF');
                 $row++;
                 
                 // Headers
-                $feedbackHeaders = ['Student Name', 'Student ID', 'Transaction Purpose', 'Rating', 'Feedback Message', 'Date'];
+                $feedbackHeaders = ['Student Name', 'Student ID', 'Transaction Purpose', 'Transaction Date', 'Rating', 'Feedback Message', 'Submitted Date'];
                 $col = 'A';
                 foreach ($feedbackHeaders as $header) {
                     $sheet->setCellValue("{$col}{$row}", $header);
                     $col++;
                 }
-                $headerStyle = $sheet->getStyle("A{$row}:F{$row}");
+                $headerStyle = $sheet->getStyle("A{$row}:G{$row}");
                 $headerStyle->getFont()->setBold(true);
                 $headerStyle->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('15592F');
                 $headerStyle->getFont()->getColor()->setRGB('FFFFFF');
@@ -655,14 +666,18 @@ class ReportController extends Controller
                 // Data rows
                 foreach ($feedbackData['feedback_details'] as $feedback) {
                     $studentName = trim(($feedback->user->fname ?? '') . ' ' . ($feedback->user->mname ?? '') . ' ' . ($feedback->user->lname ?? '')) ?: 'N/A';
-                    $purpose = $feedback->transaction_purpose ?? ($feedback->transaction_data->purpose ?? 'N/A');
+                    $purpose = $feedback->transaction_purpose ?? 'N/A';
                     
                     $sheet->setCellValue("A{$row}", $studentName);
                     $sheet->setCellValue("B{$row}", $feedback->user->student_id ?? 'N/A');
                     $sheet->setCellValue("C{$row}", $purpose);
-                    $sheet->setCellValue("D{$row}", $feedback->rating . '/5');
-                    $sheet->setCellValue("E{$row}", $feedback->message ?: 'No comment');
-                    $sheet->setCellValue("F{$row}", date('Y-m-d', strtotime($feedback->created_at)));
+                    $sheet->setCellValue("D{$row}", date('M d, Y', strtotime($feedback->transaction_date ?? $feedback->created_at)));
+                    $sheet->setCellValue("E{$row}", $feedback->rating . '/5');
+                    $sheet->setCellValue("F{$row}", $feedback->message ?: 'No comment provided');
+                    $sheet->setCellValue("G{$row}", date('M d, Y', strtotime($feedback->created_at)));
+                    
+                    // Wrap text for message column
+                    $sheet->getStyle("F{$row}")->getAlignment()->setWrapText(true);
                     $row++;
                 }
             }
@@ -1020,11 +1035,36 @@ class ReportController extends Controller
                 fputcsv($file, []); // Empty line
                 
                 fputcsv($file, ['Rating Distribution']);
-                fputcsv($file, ['Rating', 'Count']);
+                fputcsv($file, ['Rating', 'Count', 'Percentage']);
+                $totalFeedback = $feedbackData['total_feedback'];
                 foreach ($feedbackData['rating_distribution'] as $rating => $count) {
-                    fputcsv($file, [$rating . ' stars', $count]);
+                    $percentage = $totalFeedback > 0 ? round(($count / $totalFeedback) * 100, 1) : 0;
+                    fputcsv($file, [$rating . ' stars', $count, $percentage . '%']);
                 }
                 fputcsv($file, []); // Empty line
+                
+                // Add detailed feedback list
+                if (isset($feedbackData['feedback_details']) && count($feedbackData['feedback_details']) > 0) {
+                    fputcsv($file, ['DETAILED FEEDBACK (PER TRANSACTION)']);
+                    fputcsv($file, []); // Empty line
+                    fputcsv($file, ['Student Name', 'Student ID', 'Transaction Purpose', 'Transaction Date', 'Rating', 'Feedback Message', 'Submitted Date']);
+                    
+                    foreach ($feedbackData['feedback_details'] as $feedback) {
+                        $studentName = trim(($feedback->user->fname ?? '') . ' ' . ($feedback->user->mname ?? '') . ' ' . ($feedback->user->lname ?? '')) ?: 'N/A';
+                        $purpose = $feedback->transaction_purpose ?? 'N/A';
+                        
+                        fputcsv($file, [
+                            $studentName,
+                            $feedback->user->student_id ?? 'N/A',
+                            $purpose,
+                            date('M d, Y', strtotime($feedback->transaction_date ?? $feedback->created_at)),
+                            $feedback->rating . '/5',
+                            $feedback->message ?: 'No comment provided',
+                            date('M d, Y', strtotime($feedback->created_at))
+                        ]);
+                    }
+                    fputcsv($file, []); // Empty line
+                }
             }
             
             // If nothing was selected, show a message
