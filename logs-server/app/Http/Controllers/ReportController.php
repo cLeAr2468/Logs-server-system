@@ -794,29 +794,32 @@ class ReportController extends Controller
             fputcsv($output, []); // Empty line
             
             fputcsv($output, ['Rating Distribution']);
-            fputcsv($output, ['Rating', 'Count']);
+            fputcsv($output, ['Rating', 'Count', 'Percentage']);
+            $totalFeedback = $feedbackData['total_feedback'];
             foreach ($feedbackData['rating_distribution'] as $rating => $count) {
-                fputcsv($output, [$rating . ' stars', $count]);
+                $percentage = $totalFeedback > 0 ? round(($count / $totalFeedback) * 100, 1) : 0;
+                fputcsv($output, [$rating . ' stars', $count, $percentage . '%']);
             }
             fputcsv($output, []); // Empty line
             
             // Add detailed feedback if available
             if (isset($feedbackData['feedback_details']) && count($feedbackData['feedback_details']) > 0) {
-                fputcsv($output, ['DETAILED FEEDBACK']);
+                fputcsv($output, ['DETAILED FEEDBACK (PER TRANSACTION)']);
                 fputcsv($output, []); // Empty line
-                fputcsv($output, ['Student Name', 'Student ID', 'Transaction Purpose', 'Rating', 'Feedback Message', 'Date']);
+                fputcsv($output, ['Student Name', 'Student ID', 'Transaction Purpose', 'Transaction Date', 'Rating', 'Feedback Message', 'Submitted Date']);
                 
                 foreach ($feedbackData['feedback_details'] as $feedback) {
                     $studentName = trim(($feedback->user->fname ?? '') . ' ' . ($feedback->user->mname ?? '') . ' ' . ($feedback->user->lname ?? '')) ?: 'N/A';
-                    $purpose = $feedback->transaction_purpose ?? ($feedback->transaction_data->purpose ?? 'N/A');
+                    $purpose = $feedback->transaction_purpose ?? 'N/A';
                     
                     fputcsv($output, [
                         $studentName,
                         $feedback->user->student_id ?? 'N/A',
                         $purpose,
+                        date('M d, Y', strtotime($feedback->transaction_date ?? $feedback->created_at)),
                         $feedback->rating . '/5',
-                        $feedback->message ?: 'No comment',
-                        date('Y-m-d', strtotime($feedback->created_at))
+                        $feedback->message ?: 'No comment provided',
+                        date('M d, Y', strtotime($feedback->created_at))
                     ]);
                 }
                 fputcsv($output, []); // Empty line
