@@ -260,6 +260,12 @@ class ReportController extends Controller
             
             \Log::info('Starting file generation', ['format' => $format]);
             
+            // Ensure reports directory exists
+            if (!Storage::disk('public')->exists('reports')) {
+                Storage::disk('public')->makeDirectory('reports');
+                \Log::info('Created reports directory');
+            }
+            
             if ($format === 'pdf') {
                 \Log::info('Generating PDF report');
                 $fileContent = $this->generatePDFReport($transactions, $statistics, $feedbackData, $includeSummary, $includeDetails, $includeFeedback, $reportType, $startDate, $endDate);
@@ -279,28 +285,48 @@ class ReportController extends Controller
             }
             
             // Store file
-            Storage::disk('public')->put($filePath, $fileContent);
+            try {
+                Storage::disk('public')->put($filePath, $fileContent);
+                \Log::info('File saved to storage', ['path' => $filePath]);
+            } catch (\Exception $storageError) {
+                \Log::error('Storage error: ' . $storageError->getMessage());
+                // Continue anyway - we can still return the file
+            }
             
             // Get file size
-            $fileSize = Storage::disk('public')->size($filePath);
-            $fileSizeFormatted = $this->formatBytes($fileSize);
+            $fileSize = 0;
+            $fileSizeFormatted = '0 B';
+            try {
+                if (Storage::disk('public')->exists($filePath)) {
+                    $fileSize = Storage::disk('public')->size($filePath);
+                    $fileSizeFormatted = $this->formatBytes($fileSize);
+                }
+            } catch (\Exception $e) {
+                \Log::warning('Could not get file size: ' . $e->getMessage());
+            }
             
             // Save to database with success status
-            ExportedReport::create([
-                'staff_id' => $staffId,
-                'report_name' => $reportType . ' - ' . ($dateRange),
-                'report_type' => $reportType,
-                'file_format' => strtoupper($format === 'excel' ? 'XLSX' : $format),
-                'file_path' => $filePath,
-                'status' => 'success',
-                'error_message' => null,
-                'file_size' => $fileSizeFormatted,
-                'start_date' => $startDate,
-                'end_date' => $endDate,
-                'include_summary' => $includeSummary,
-                'include_details' => $includeDetails,
-                'include_feedback' => $includeFeedback,
-            ]);
+            try {
+                ExportedReport::create([
+                    'staff_id' => $staffId,
+                    'report_name' => $reportType . ' - ' . ($dateRange),
+                    'report_type' => $reportType,
+                    'file_format' => strtoupper($format === 'excel' ? 'XLSX' : $format),
+                    'file_path' => $filePath,
+                    'status' => 'success',
+                    'error_message' => null,
+                    'file_size' => $fileSizeFormatted,
+                    'start_date' => $startDate,
+                    'end_date' => $endDate,
+                    'include_summary' => $includeSummary,
+                    'include_details' => $includeDetails,
+                    'include_feedback' => $includeFeedback,
+                ]);
+                \Log::info('Export record saved to database');
+            } catch (\Exception $dbError) {
+                \Log::error('Database save error: ' . $dbError->getMessage());
+                // Continue anyway - file generation succeeded
+            }
             
             // Return file for download
             $headers = [
@@ -314,28 +340,35 @@ class ReportController extends Controller
             // Log the error
             \Log::error('Export Report Error: ' . $e->getMessage());
             \Log::error('Stack trace: ' . $e->getTraceAsString());
+            \Log::error('Request data: ' . json_encode($request->all()));
             
-            // Save failed export to database
-            ExportedReport::create([
-                'staff_id' => $staffId,
-                'report_name' => $reportType . ' - ' . ($dateRange),
-                'report_type' => $reportType,
-                'file_format' => strtoupper($format === 'excel' ? 'XLSX' : $format),
-                'file_path' => $filePath,
-                'status' => 'failed',
-                'error_message' => $e->getMessage(),
-                'file_size' => '0 B',
-                'start_date' => $startDate,
-                'end_date' => $endDate,
-                'include_summary' => $includeSummary,
-                'include_details' => $includeDetails,
-                'include_feedback' => $includeFeedback,
-            ]);
+            // Try to save failed export to database
+            try {
+                ExportedReport::create([
+                    'staff_id' => $staffId ?? null,
+                    'report_name' => ($reportType ?? 'Unknown') . ' - ' . ($dateRange ?? date('Y-m-d')),
+                    'report_type' => $reportType ?? 'Unknown',
+                    'file_format' => strtoupper($format === 'excel' ? 'XLSX' : ($format ?? 'CSV')),
+                    'file_path' => $filePath ?? 'reports/unknown.csv',
+                    'status' => 'failed',
+                    'error_message' => $e->getMessage(),
+                    'file_size' => '0 B',
+                    'start_date' => $startDate ?? null,
+                    'end_date' => $endDate ?? null,
+                    'include_summary' => $includeSummary ?? false,
+                    'include_details' => $includeDetails ?? false,
+                    'include_feedback' => $includeFeedback ?? false,
+                ]);
+            } catch (\Exception $dbError) {
+                \Log::error('Could not save failed export record: ' . $dbError->getMessage());
+            }
             
             // Return error response
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to generate report: ' . $e->getMessage()
+                'message' => 'Failed to generate report: ' . $e->getMessage(),
+                'error' => $e->getMessage(),
+                'trace' => config('app.debug') ? $e->getTraceAsString() : null
             ], 500);
         }
     }
