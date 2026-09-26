@@ -167,15 +167,24 @@ class ReportController extends Controller
      */
     public function exportReport(Request $request)
     {
-        $request->validate([
-            'format' => 'sometimes|in:csv,excel,pdf',
-            'start_date' => 'sometimes|date',
-            'end_date' => 'sometimes|date',
-            'report_type' => 'sometimes|string',
-            'include_summary' => 'sometimes|in:0,1',
-            'include_details' => 'sometimes|in:0,1',
-            'include_feedback' => 'sometimes|in:0,1',
-        ]);
+        try {
+            $request->validate([
+                'format' => 'sometimes|in:csv,excel,pdf',
+                'start_date' => 'sometimes|date',
+                'end_date' => 'sometimes|date',
+                'report_type' => 'sometimes|string',
+                'include_summary' => 'sometimes|in:0,1',
+                'include_details' => 'sometimes|in:0,1',
+                'include_feedback' => 'sometimes|in:0,1',
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            \Log::error('Export Validation Error: ' . json_encode($e->errors()));
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors' => $e->errors()
+            ], 422);
+        }
         
         $format = $request->input('format', 'csv');
         $startDate = $request->input('start_date');
@@ -193,6 +202,16 @@ class ReportController extends Controller
         try {
             // Get all purposes from database for mapping
             $allPurposes = \App\Models\Purpose::pluck('name')->toArray();
+            
+            \Log::info('Export Report Started', [
+                'format' => $format,
+                'report_type' => $reportType,
+                'start_date' => $startDate,
+                'end_date' => $endDate,
+                'include_summary' => $includeSummary,
+                'include_details' => $includeDetails,
+                'include_feedback' => $includeFeedback
+            ]);
             
             // Build transactions query
             $query = Transaction::with('user');
@@ -213,40 +232,50 @@ class ReportController extends Controller
                     $query->where('purpose', $purposeName);
                 }
             }
-            // For summary reports and detailed reports, include all purposes (no filter)
-            // - Student Affairs Services Summary
-            // - Monthly Transaction Summary
-            // - Detailed Transaction Report
-            // - Performance Metrics Report
             
             $transactions = $query->orderBy('created_at', 'desc')->get();
+            
+            \Log::info('Transactions fetched', ['count' => $transactions->count()]);
             
             // Calculate statistics if summary is included
             $statistics = null;
             if ($includeSummary) {
                 $statistics = $this->calculateStatistics($transactions);
+                \Log::info('Statistics calculated', ['total' => $statistics['total']]);
             }
             
             // Get feedback data if feedback is included
             $feedbackData = null;
             if ($includeFeedback) {
                 $feedbackData = $this->getFeedbackData($startDate, $endDate);
+                \Log::info('Feedback data fetched', [
+                    'total_feedback' => $feedbackData['total_feedback'],
+                    'has_details' => isset($feedbackData['feedback_details'])
+                ]);
             }
             
             // Generate file based on format
             $filePath = 'reports/' . $filename;
             $contentType = 'text/csv';
             
+            \Log::info('Starting file generation', ['format' => $format]);
+            
             if ($format === 'pdf') {
+                \Log::info('Generating PDF report');
                 $fileContent = $this->generatePDFReport($transactions, $statistics, $feedbackData, $includeSummary, $includeDetails, $includeFeedback, $reportType, $startDate, $endDate);
                 $contentType = 'application/pdf';
+                \Log::info('PDF generated successfully');
             } elseif ($format === 'excel') {
+                \Log::info('Generating Excel report');
                 $fileContent = $this->generateExcelReport($transactions, $statistics, $feedbackData, $includeSummary, $includeDetails, $includeFeedback, $reportType, $startDate, $endDate);
                 $contentType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
                 $filename = str_replace('.excel', '.xlsx', $filename);
                 $filePath = 'reports/' . $filename;
+                \Log::info('Excel generated successfully');
             } else {
+                \Log::info('Generating CSV report');
                 $fileContent = $this->generateCSVReport($transactions, $statistics, $feedbackData, $includeSummary, $includeDetails, $includeFeedback, $reportType, $startDate, $endDate);
+                \Log::info('CSV generated successfully');
             }
             
             // Store file
@@ -419,12 +448,22 @@ class ReportController extends Controller
             $data['notedByTitle'] = 'Head, Student Affairs and Services';
             
             // Generate PDF with options to handle potential issues
-            $pdf = Pdf::loadView('reports.pdf_report', $data);
-            $pdf->setPaper('letter', 'portrait');
-            $pdf->setOption('isHtml5ParserEnabled', true);
-            $pdf->setOption('isRemoteEnabled', true);
-            
-            return $pdf->output();
+            try {
+                $pdf = Pdf::loadView('reports.pdf_report', $data);
+                $pdf->setPaper('letter', 'portrait');
+                $pdf->setOption('isHtml5ParserEnabled', true);
+                $pdf->setOption('isRemoteEnabled', true);
+                
+                return $pdf->output();
+            } catch (\Exception $pdfError) {
+                \Log::error('Dompdf Error: ' . $pdfError->getMessage());
+                
+                // Try without options as fallback
+                $pdf = Pdf::loadView('reports.pdf_report', $data);
+                $pdf->setPaper('letter', 'portrait');
+                
+                return $pdf->output();
+            }
         } catch (\Exception $e) {
             \Log::error('PDF Generation Error: ' . $e->getMessage());
             \Log::error('Stack trace: ' . $e->getTraceAsString());

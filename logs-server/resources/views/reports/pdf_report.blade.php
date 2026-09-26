@@ -215,7 +215,13 @@
     <!-- Header -->
     <div class="header">
         <div class="logo-container">
-            <img src="{{ public_path('storage/images/nwssu-logo.png') }}" alt="NWSSU Logo" class="logo" />
+            @php
+                $logoPath = public_path('storage/images/nwssu-logo.png');
+                $logoExists = file_exists($logoPath);
+            @endphp
+            @if($logoExists)
+                <img src="{{ $logoPath }}" alt="NWSSU Logo" class="logo" />
+            @endif
             <div class="header-text">
                 <div class="university-name">NORTHWEST SAMAR STATE UNIVERSITY</div>
                 <div class="campus-name">San Jorge Campus</div>
