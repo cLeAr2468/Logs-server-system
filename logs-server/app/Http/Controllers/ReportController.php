@@ -935,151 +935,152 @@ class ReportController extends Controller
      */
     private function exportToCsv($transactions, $statistics, $feedbackData, $includeSummary, $includeDetails, $includeFeedback, $reportType, $startDate, $endDate)
     {
-        $dateRange = ($startDate && $endDate) ? $startDate . '_to_' . $endDate : date('Y-m-d');
-        $filename = 'transactions_report_' . $dateRange . '.csv';
+        // This method was replaced - use generateCSVReport instead
+        return $this->generateCSVReport($transactions, $statistics, $feedbackData, $includeSummary, $includeDetails, $includeFeedback, $reportType, $startDate, $endDate);
+    }
+
+    /**
+     * Generate CSV report content
+     */
+    private function generateCSVReport($transactions, $statistics, $feedbackData, $includeSummary, $includeDetails, $includeFeedback, $reportType, $startDate, $endDate)
+    {
+        $output = fopen('php://temp', 'w');
+            
+        // Add report header
+        fputcsv($output, ['NORTHWEST SAMAR STATE UNIVERSITY - SAN JORGE CAMPUS']);
+        fputcsv($output, ['STUDENT AFFAIRS AND SERVICES']);
+        fputcsv($output, [$reportType]);
+        if ($startDate && $endDate) {
+            fputcsv($output, ['Period: ' . date('F d, Y', strtotime($startDate)) . ' to ' . date('F d, Y', strtotime($endDate))]);
+        }
+        fputcsv($output, ['Generated: ' . date('F d, Y h:i A')]);
+        fputcsv($output, []); // Empty line
         
-        $headers = [
-            'Content-Type' => 'text/csv',
-            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
-        ];
+        // Add summary section if requested
+        if ($includeSummary && $statistics) {
+            fputcsv($output, ['SUMMARY (STATUS OVERVIEW)']);
+            fputcsv($output, []); // Empty line
+            fputcsv($output, ['Total Transactions:', $statistics['total']]);
+            fputcsv($output, []); // Empty line
+            fputcsv($output, ['Status', 'Count', 'Percentage']);
+            foreach ($statistics['by_status'] as $status => $count) {
+                $percentage = $statistics['total'] > 0 ? round(($count / $statistics['total']) * 100, 1) : 0;
+                fputcsv($output, [ucfirst($status), $count, $percentage . '%']);
+            }
+            fputcsv($output, []); // Empty line
+            
+            fputcsv($output, ['Top Requested Purposes']);
+            fputcsv($output, ['Purpose', 'Count']);
+            foreach ($statistics['by_purpose'] as $purpose => $count) {
+                fputcsv($output, [$purpose, $count]);
+            }
+            fputcsv($output, []); // Empty line
+            fputcsv($output, []); // Empty line
+        }
         
-        $callback = function() use ($transactions, $statistics, $feedbackData, $includeSummary, $includeDetails, $includeFeedback, $reportType, $startDate, $endDate) {
-            $file = fopen('php://output', 'w');
+        // Add detailed transactions if requested
+        if ($includeDetails && $transactions->count() > 0) {
+            fputcsv($output, ['DETAILED TRANSACTIONS']);
+            fputcsv($output, []); // Empty line
             
-            // Add report header
-            fputcsv($file, ['NORTHWEST SAMAR STATE UNIVERSITY - SAN JORGE CAMPUS']);
-            fputcsv($file, ['STUDENT AFFAIRS AND SERVICES']);
-            fputcsv($file, [$reportType]);
-            if ($startDate && $endDate) {
-                fputcsv($file, ['Period: ' . date('F d, Y', strtotime($startDate)) . ' to ' . date('F d, Y', strtotime($endDate))]);
-            }
-            fputcsv($file, ['Generated: ' . date('F d, Y h:i A')]);
-            fputcsv($file, []); // Empty line
+            // Add CSV headers
+            fputcsv($output, [
+                'Date',
+                'Student ID',
+                'Student Name',
+                'Course',
+                'Year Level',
+                'Purpose',
+                'Address',
+                'Schedule Date',
+                'Time Slot',
+                'Status',
+                'Created At'
+            ]);
             
-            // Add summary section if requested
-            if ($includeSummary && $statistics) {
-                fputcsv($file, ['SUMMARY (STATUS OVERVIEW)']);
-                fputcsv($file, []); // Empty line
-                fputcsv($file, ['Total Transactions:', $statistics['total']]);
-                fputcsv($file, []); // Empty line
-                fputcsv($file, ['Status', 'Count', 'Percentage']);
-                foreach ($statistics['by_status'] as $status => $count) {
-                    $percentage = $statistics['total'] > 0 ? round(($count / $statistics['total']) * 100, 1) : 0;
-                    fputcsv($file, [ucfirst($status), $count, $percentage . '%']);
-                }
-                fputcsv($file, []); // Empty line
+            // Add data rows
+            foreach ($transactions as $transaction) {
+                $studentName = $transaction->user 
+                    ? trim($transaction->user->fname . ' ' . $transaction->user->mname . ' ' . $transaction->user->lname)
+                    : 'N/A';
                 
-                fputcsv($file, ['Top Requested Purposes']);
-                fputcsv($file, ['Purpose', 'Count']);
-                foreach ($statistics['by_purpose'] as $purpose => $count) {
-                    fputcsv($file, [$purpose, $count]);
-                }
-                fputcsv($file, []); // Empty line
-                fputcsv($file, []); // Empty line
-            }
-            
-            // Add detailed transactions if requested
-            if ($includeDetails && $transactions->count() > 0) {
-                fputcsv($file, ['DETAILED TRANSACTIONS']);
-                fputcsv($file, []); // Empty line
+                $address = trim($transaction->street_house_no . ', ' . 
+                              $transaction->brgy . ', ' . 
+                              $transaction->municipality . ', ' . 
+                              $transaction->province);
                 
-                // Add CSV headers
-                fputcsv($file, [
-                    'Date',
-                    'Student ID',
-                    'Student Name',
-                    'Course',
-                    'Year Level',
-                    'Purpose',
-                    'Address',
-                    'Schedule Date',
-                    'Time Slot',
-                    'Status',
-                    'Created At'
+                fputcsv($output, [
+                    $transaction->created_at->format('Y-m-d'),
+                    $transaction->user->student_id ?? 'N/A',
+                    $studentName,
+                    $transaction->user->course ?? 'N/A',
+                    $transaction->user->year_level ?? 'N/A',
+                    $transaction->purpose,
+                    $address,
+                    $transaction->schedule_date,
+                    $transaction->time_slot,
+                    ucfirst($transaction->status),
+                    $transaction->created_at->format('Y-m-d H:i:s')
                 ]);
+            }
+            fputcsv($output, []); // Empty line
+        }
+            
+        // Add feedback summary if requested
+        if ($includeFeedback && $feedbackData) {
+            fputcsv($output, ['FEEDBACK SUMMARY']);
+            fputcsv($output, []); // Empty line
+            fputcsv($output, ['Total Feedback Received:', $feedbackData['total_feedback']]);
+            fputcsv($output, ['Average Rating:', round($feedbackData['average_rating'], 2) . ' / 5.0']);
+            fputcsv($output, []); // Empty line
+            
+            fputcsv($output, ['Rating Distribution']);
+            fputcsv($output, ['Rating', 'Count', 'Percentage']);
+            $totalFeedback = $feedbackData['total_feedback'];
+            foreach ($feedbackData['rating_distribution'] as $rating => $count) {
+                $percentage = $totalFeedback > 0 ? round(($count / $totalFeedback) * 100, 1) : 0;
+                fputcsv($output, [$rating . ' stars', $count, $percentage . '%']);
+            }
+            fputcsv($output, []); // Empty line
+            
+            // Add detailed feedback list
+            if (isset($feedbackData['feedback_details']) && count($feedbackData['feedback_details']) > 0) {
+                fputcsv($output, ['DETAILED FEEDBACK (PER TRANSACTION)']);
+                fputcsv($output, []); // Empty line
+                fputcsv($output, ['Student Name', 'Student ID', 'Transaction Purpose', 'Transaction Date', 'Rating', 'Feedback Message', 'Submitted Date']);
                 
-                // Add data rows
-                foreach ($transactions as $transaction) {
-                    $studentName = $transaction->user 
-                        ? trim($transaction->user->fname . ' ' . $transaction->user->mname . ' ' . $transaction->user->lname)
-                        : 'N/A';
+                foreach ($feedbackData['feedback_details'] as $feedback) {
+                    $studentName = trim(($feedback->user->fname ?? '') . ' ' . ($feedback->user->mname ?? '') . ' ' . ($feedback->user->lname ?? '')) ?: 'N/A';
+                    $purpose = $feedback->transaction_purpose ?? 'N/A';
                     
-                    $address = trim($transaction->street_house_no . ', ' . 
-                                  $transaction->brgy . ', ' . 
-                                  $transaction->municipality . ', ' . 
-                                  $transaction->province);
-                    
-                    fputcsv($file, [
-                        $transaction->created_at->format('Y-m-d'),
-                        $transaction->user->student_id ?? 'N/A',
+                    fputcsv($output, [
                         $studentName,
-                        $transaction->user->course ?? 'N/A',
-                        $transaction->user->year_level ?? 'N/A',
-                        $transaction->purpose,
-                        $address,
-                        $transaction->schedule_date,
-                        $transaction->time_slot,
-                        ucfirst($transaction->status),
-                        $transaction->created_at->format('Y-m-d H:i:s')
+                        $feedback->user->student_id ?? 'N/A',
+                        $purpose,
+                        date('M d, Y', strtotime($feedback->transaction_date ?? $feedback->created_at)),
+                        $feedback->rating . '/5',
+                        $feedback->message ?: 'No comment provided',
+                        date('M d, Y', strtotime($feedback->created_at))
                     ]);
                 }
-                fputcsv($file, []); // Empty line
+                fputcsv($output, []); // Empty line
             }
-            
-            // Add feedback summary if requested
-            if ($includeFeedback && $feedbackData) {
-                fputcsv($file, ['FEEDBACK SUMMARY']);
-                fputcsv($file, []); // Empty line
-                fputcsv($file, ['Total Feedback Received:', $feedbackData['total_feedback']]);
-                fputcsv($file, ['Average Rating:', round($feedbackData['average_rating'], 2) . ' / 5.0']);
-                fputcsv($file, []); // Empty line
-                
-                fputcsv($file, ['Rating Distribution']);
-                fputcsv($file, ['Rating', 'Count', 'Percentage']);
-                $totalFeedback = $feedbackData['total_feedback'];
-                foreach ($feedbackData['rating_distribution'] as $rating => $count) {
-                    $percentage = $totalFeedback > 0 ? round(($count / $totalFeedback) * 100, 1) : 0;
-                    fputcsv($file, [$rating . ' stars', $count, $percentage . '%']);
-                }
-                fputcsv($file, []); // Empty line
-                
-                // Add detailed feedback list
-                if (isset($feedbackData['feedback_details']) && count($feedbackData['feedback_details']) > 0) {
-                    fputcsv($file, ['DETAILED FEEDBACK (PER TRANSACTION)']);
-                    fputcsv($file, []); // Empty line
-                    fputcsv($file, ['Student Name', 'Student ID', 'Transaction Purpose', 'Transaction Date', 'Rating', 'Feedback Message', 'Submitted Date']);
-                    
-                    foreach ($feedbackData['feedback_details'] as $feedback) {
-                        $studentName = trim(($feedback->user->fname ?? '') . ' ' . ($feedback->user->mname ?? '') . ' ' . ($feedback->user->lname ?? '')) ?: 'N/A';
-                        $purpose = $feedback->transaction_purpose ?? 'N/A';
-                        
-                        fputcsv($file, [
-                            $studentName,
-                            $feedback->user->student_id ?? 'N/A',
-                            $purpose,
-                            date('M d, Y', strtotime($feedback->transaction_date ?? $feedback->created_at)),
-                            $feedback->rating . '/5',
-                            $feedback->message ?: 'No comment provided',
-                            date('M d, Y', strtotime($feedback->created_at))
-                        ]);
-                    }
-                    fputcsv($file, []); // Empty line
-                }
-            }
-            
-            // If nothing was selected, show a message
-            if (!$includeSummary && !$includeDetails && !$includeFeedback) {
-                fputcsv($file, ['No report sections selected.']);
-                fputcsv($file, ['Please select at least one section to include in the report.']);
-            }
-            
-            fputcsv($file, []); // Empty line
-            fputcsv($file, ['--- End of Report ---']);
-            
-            fclose($file);
-        };
+        }
         
-        return response()->stream($callback, 200, $headers);
+        // If nothing was selected, show a message
+        if (!$includeSummary && !$includeDetails && !$includeFeedback) {
+            fputcsv($output, ['No report sections selected.']);
+            fputcsv($output, ['Please select at least one section to include in the report.']);
+        }
+        
+        fputcsv($output, []); // Empty line
+        fputcsv($output, ['--- End of Report ---']);
+        
+        rewind($output);
+        $content = stream_get_contents($output);
+        fclose($output);
+        
+        return $content;
     }
     
     /**
