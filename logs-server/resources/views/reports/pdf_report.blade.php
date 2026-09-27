@@ -22,18 +22,21 @@
         }
         
         .logo-container {
-            text-align: center;
+            display: table;
+            width: 100%;
             margin-bottom: 10px;
         }
         
         .logo {
             width: 60px;
             height: 60px;
-            display: block;
-            margin: 0 auto 10px auto;
+            float: left;
+            margin-right: 15px;
         }
         
         .header-text {
+            display: table-cell;
+            vertical-align: middle;
             text-align: center;
         }
         
