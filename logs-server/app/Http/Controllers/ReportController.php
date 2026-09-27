@@ -977,7 +977,6 @@ class ReportController extends Controller
             }
             
             $feedbacks = $query->get();
-            // transaction_data is automatically appended via accessor
             
             return [
                 'total_feedback' => $feedbacks->count(),

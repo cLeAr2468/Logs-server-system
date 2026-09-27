@@ -13,6 +13,7 @@ class Feedback extends Model
 
     protected $fillable = [
         'user_id',
+        'transaction_id',
         'transaction_purpose',
         'transaction_date',
         'rating',
@@ -25,9 +26,6 @@ class Feedback extends Model
         'updated_at' => 'datetime',
     ];
 
-    // Remove $appends to prevent automatic loading of transaction_data
-    // Only load it when explicitly requested
-
     /**
      * Get the user that owns the feedback
      */
@@ -37,32 +35,10 @@ class Feedback extends Model
     }
 
     /**
-     * Get the transaction data based on stored reference
-     * Only call this manually when needed, not automatically
+     * Get the transaction that this feedback belongs to
      */
-    public function getTransactionDataAttribute()
+    public function transaction()
     {
-        if (!$this->transaction_purpose || !$this->transaction_date) {
-            return null;
-        }
-
-        try {
-            // Normalize the date for consistent comparison
-            $normalizedDate = \Carbon\Carbon::parse($this->transaction_date)->format('Y-m-d');
-
-            return Transaction::where('user_id', $this->user_id)
-                ->where('purpose', $this->transaction_purpose)
-                ->whereDate('schedule_date', $normalizedDate)
-                ->first();
-        } catch (\Exception $e) {
-            \Log::warning('Failed to retrieve transaction_data for feedback', [
-                'feedback_id' => $this->id,
-                'user_id' => $this->user_id,
-                'purpose' => $this->transaction_purpose,
-                'date' => $this->transaction_date,
-                'error' => $e->getMessage()
-            ]);
-            return null;
-        }
+        return $this->belongsTo(Transaction::class);
     }
 }

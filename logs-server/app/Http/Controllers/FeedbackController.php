@@ -41,81 +41,51 @@ class FeedbackController extends Controller
     }
 
     /**
-     * Store new feedback for a specific transaction
+     * Store new feedback for a specific transaction (using transaction_id)
      */
     public function store(Request $request)
     {
         $request->validate([
-            'transaction_purpose' => 'required|string|max:255',
-            'transaction_date' => 'required|date',
+            'transaction_id' => 'required|integer|exists:transactions,id',
             'rating' => 'required|integer|min:1|max:5',
             'message' => 'required|string|max:500',
         ]);
 
         $user = $request->user();
-
-        // Normalize the date format to Y-m-d for consistent comparison
-        $normalizedDate = \Carbon\Carbon::parse($request->transaction_date)->format('Y-m-d');
-
-        // Log for debugging
-        \Log::info('Feedback submission attempt', [
-            'user_id' => $user->id,
-            'purpose' => $request->transaction_purpose,
-            'date_received' => $request->transaction_date,
-            'date_normalized' => $normalizedDate,
-        ]);
-
-        // Verify that this transaction exists, belongs to user, and is completed
-        $transaction = \App\Models\Transaction::where('user_id', $user->id)
-            ->where('purpose', $request->transaction_purpose)
-            ->whereDate('schedule_date', $normalizedDate)
+        
+        // Get the transaction and verify it belongs to the user
+        $transaction = \App\Models\Transaction::where('id', $request->transaction_id)
+            ->where('user_id', $user->id)
             ->where('status', 'completed')
             ->first();
 
         if (!$transaction) {
-            // Log available transactions for debugging
-            $availableTransactions = \App\Models\Transaction::where('user_id', $user->id)
-                ->where('status', 'completed')
-                ->select('id', 'purpose', 'schedule_date', 'status')
-                ->get();
-            
-            \Log::warning('Transaction not found for feedback', [
-                'searched_purpose' => $request->transaction_purpose,
-                'searched_date' => $normalizedDate,
-                'available_completed_transactions' => $availableTransactions->toArray()
-            ]);
-
             return response()->json([
-                'message' => 'Transaction not found or not yet completed',
-                'debug' => [
-                    'searched_purpose' => $request->transaction_purpose,
-                    'searched_date' => $normalizedDate,
-                ]
+                'message' => 'Transaction not found or not eligible for feedback'
             ], 404);
         }
 
-        // Check if feedback already exists for THIS SPECIFIC transaction
-        $existingFeedback = Feedback::where('user_id', $user->id)
-            ->where('transaction_purpose', $request->transaction_purpose)
-            ->where('transaction_date', $normalizedDate)
-            ->first();
-
+        // Check if feedback already exists for this SPECIFIC transaction ID
+        $existingFeedback = Feedback::where('transaction_id', $request->transaction_id)->first();
+        
         if ($existingFeedback) {
             return response()->json([
-                'message' => 'You have already submitted feedback for this transaction',
-            ], 422);
+                'message' => 'You have already submitted feedback for this transaction'
+            ], 409);
         }
 
+        // Create feedback with transaction reference
         $feedback = Feedback::create([
             'user_id' => $user->id,
-            'transaction_purpose' => $request->transaction_purpose,
-            'transaction_date' => $normalizedDate,
+            'transaction_id' => $transaction->id,
+            'transaction_purpose' => $transaction->purpose,
+            'transaction_date' => \Carbon\Carbon::parse($transaction->schedule_date)->format('Y-m-d'),
             'rating' => $request->rating,
             'message' => $request->message,
         ]);
 
-        // Load user relationship
-        $feedback->load('user:id,fname,mname,lname,email,student_id');
+        // Load relationships
+        $feedback->load('user:id,fname,mname,lname,email,student_id', 'transaction');
 
         return response()->json([
             'message' => 'Feedback submitted successfully',
@@ -147,25 +117,16 @@ class FeedbackController extends Controller
                 ->select('id', 'purpose', 'schedule_date', 'time_slot', 'created_at')
                 ->get();
 
-            // Get all feedback for this user
-            $userFeedback = \DB::table('feedback')
+            // Get all transaction IDs that already have feedback
+            $feedbackTransactionIds = \DB::table('feedback')
                 ->where('user_id', $user->id)
-                ->select('transaction_purpose', 'transaction_date')
-                ->get();
+                ->whereNotNull('transaction_id')
+                ->pluck('transaction_id')
+                ->toArray();
 
-            // Filter out transactions that already have feedback
-            $transactionsWithoutFeedback = $completedTransactions->filter(function($transaction) use ($userFeedback) {
-                // Normalize transaction date
-                $transactionDate = \Carbon\Carbon::parse($transaction->schedule_date)->format('Y-m-d');
-                
-                // Check if there's feedback for this specific transaction
-                $hasFeedback = $userFeedback->contains(function($feedback) use ($transaction, $transactionDate) {
-                    $feedbackDate = \Carbon\Carbon::parse($feedback->transaction_date)->format('Y-m-d');
-                    return $feedback->transaction_purpose === $transaction->purpose 
-                        && $feedbackDate === $transactionDate;
-                });
-                
-                return !$hasFeedback;
+            // Filter out transactions that already have feedback (by transaction_id)
+            $transactionsWithoutFeedback = $completedTransactions->filter(function($transaction) use ($feedbackTransactionIds) {
+                return !in_array($transaction->id, $feedbackTransactionIds);
             });
 
             return response()->json([
@@ -204,19 +165,15 @@ class FeedbackController extends Controller
             ]);
         }
 
-        // Normalize the date for consistent comparison
-        $normalizedDate = \Carbon\Carbon::parse($transaction->schedule_date)->format('Y-m-d');
-
-        // Check if there's feedback for THIS SPECIFIC transaction
-        $feedback = Feedback::where('user_id', $user->id)
-            ->where('transaction_purpose', $transaction->purpose)
-            ->where('transaction_date', $normalizedDate)
-            ->with('user:id,fname,mname,lname,email,student_id')
+        // Check if there's feedback for THIS SPECIFIC transaction by transaction_id
+        $feedback = Feedback::where('transaction_id', $transactionId)
+            ->where('user_id', $user->id)
+            ->with('user:id,fname,mname,lname,email,student_id', 'transaction')
             ->first();
 
         return response()->json([
             'has_feedback' => $feedback ? true : false,
-            'feedback' => $feedback // transaction_data is automatically appended
+            'feedback' => $feedback
         ]);
     }
 
