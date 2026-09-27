@@ -197,7 +197,13 @@ class ReportController extends Controller
         // Generate filename
         $dateRange = ($startDate && $endDate) ? $startDate . '_to_' . $endDate : date('Y-m-d');
         $filename = 'transactions_report_' . $dateRange . '.' . $format;
-        $staffId = $request->user() ? $request->user()->id : null;
+        
+        // Get staff_id only if user is Staff model, otherwise null
+        $staffId = null;
+        $user = $request->user();
+        if ($user && get_class($user) === 'App\Models\Staff') {
+            $staffId = $user->id;
+        }
         
         try {
             // Get all purposes from database for mapping
