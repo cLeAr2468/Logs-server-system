@@ -546,11 +546,11 @@ class TransactionController extends Controller
         // Maximum appointments per time slot
         $maxAppointmentsPerSlot = 5;
 
-        // Get count of pending and approved appointments for each slot (only these statuses count toward the limit)
-        // Use DATE() function to compare only the date part, ignoring time
+        // Get count of UNIQUE USERS (not total requests) for each slot
+        // This ensures multiple appointments by the same user on same date/time only count once
         $slotCounts = Transaction::whereRaw('DATE(schedule_date) = ?', [$request->date])
             ->whereIn('status', ['pending', 'approved'])
-            ->select('time_slot', \DB::raw('COUNT(*) as count'))
+            ->select('time_slot', \DB::raw('COUNT(DISTINCT user_id) as count'))
             ->groupBy('time_slot')
             ->pluck('count', 'time_slot')
             ->toArray();
