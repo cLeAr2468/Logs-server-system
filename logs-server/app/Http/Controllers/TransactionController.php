@@ -41,7 +41,9 @@ class TransactionController extends Controller
 
     /**
      * Create a new appointment/transaction
-     * Enforces 5 appointments per time slot limit (counts ALL statuses)
+     * Hybrid Approach:
+     * - Max 5 UNIQUE USERS per time slot
+     * - Max 3 TRANSACTIONS per user per time slot
      */
     public function store(Request $request)
     {
@@ -54,27 +56,57 @@ class TransactionController extends Controller
             'time_slot' => 'required|string',
         ]);
 
-        // Maximum appointments per time slot
-        $maxAppointmentsPerSlot = 5;
+        // Limits configuration
+        $maxUsersPerSlot = 5;
+        $maxTransactionsPerUserPerSlot = 3;
 
-        // CRITICAL: Check if time slot is already full (limit: 5 appointments per slot - only pending and approved count)
-        $slotCount = Transaction::whereRaw('DATE(schedule_date) = ?', [$request->schedule_date])
-            ->where('time_slot', $request->time_slot)
+        $userId = $request->user()->id;
+        $scheduleDate = $request->schedule_date;
+        $timeSlot = $request->time_slot;
+
+        // Check 1: Count unique users in this slot (only pending/approved)
+        $uniqueUserCount = Transaction::whereRaw('DATE(schedule_date) = ?', [$scheduleDate])
+            ->where('time_slot', $timeSlot)
+            ->whereIn('status', ['pending', 'approved'])
+            ->distinct('user_id')
+            ->count('user_id');
+
+        \Log::info("Unique user count for {$scheduleDate} {$timeSlot}: {$uniqueUserCount}/{$maxUsersPerSlot}");
+
+        // Check 2: Count current user's transactions in this specific slot
+        $userTransactionCount = Transaction::whereRaw('DATE(schedule_date) = ?', [$scheduleDate])
+            ->where('time_slot', $timeSlot)
+            ->where('user_id', $userId)
             ->whereIn('status', ['pending', 'approved'])
             ->count();
 
-        \Log::info("Slot check for {$request->schedule_date} {$request->time_slot}: {$slotCount}/{$maxAppointmentsPerSlot} (pending/approved only)");
+        \Log::info("User {$userId} transaction count for {$scheduleDate} {$timeSlot}: {$userTransactionCount}/{$maxTransactionsPerUserPerSlot}");
 
-        if ($slotCount >= $maxAppointmentsPerSlot) {
+        // Check if user already has booking in this slot
+        $userHasBookingInSlot = $userTransactionCount > 0;
+
+        // Validation: Slot is full if unique users >= max AND user doesn't have existing booking
+        if ($uniqueUserCount >= $maxUsersPerSlot && !$userHasBookingInSlot) {
             return response()->json([
-                'message' => 'This time slot is fully booked (5/5 appointments). Please choose another time slot.',
+                'message' => "This time slot is fully booked ({$maxUsersPerSlot}/{$maxUsersPerSlot} users). Please choose another time slot.",
                 'slot_full' => true,
-                'current_count' => $slotCount
-            ], 409); // 409 Conflict
+                'unique_users' => $uniqueUserCount,
+                'max_users' => $maxUsersPerSlot
+            ], 409);
+        }
+
+        // Validation: User has reached transaction limit for this slot
+        if ($userTransactionCount >= $maxTransactionsPerUserPerSlot) {
+            return response()->json([
+                'message' => "You have reached the maximum of {$maxTransactionsPerUserPerSlot} transactions for this time slot. Please choose a different time slot.",
+                'user_limit_reached' => true,
+                'user_transactions' => $userTransactionCount,
+                'max_transactions' => $maxTransactionsPerUserPerSlot
+            ], 409);
         }
 
         // Check if user already has a pending or approved appointment with the same purpose
-        $existingPurposeAppointment = Transaction::where('user_id', $request->user()->id)
+        $existingPurposeAppointment = Transaction::where('user_id', $userId)
             ->where('purpose', $request->purpose)
             ->whereIn('status', ['pending', 'approved'])
             ->first();
@@ -82,40 +114,35 @@ class TransactionController extends Controller
         if ($existingPurposeAppointment) {
             return response()->json([
                 'message' => 'You already have a pending or approved appointment for "' . $request->purpose . '". Please wait for it to be completed or cancelled before creating a new one with the same purpose.'
-            ], 409); // 409 Conflict
-        }
-
-        // Check if user already has a pending or approved appointment on the same date and time
-        $existingTimeSlot = Transaction::where('user_id', $request->user()->id)
-            ->whereRaw('DATE(schedule_date) = ?', [$request->schedule_date])
-            ->where('time_slot', $request->time_slot)
-            ->whereIn('status', ['pending', 'approved'])
-            ->first();
-
-        if ($existingTimeSlot) {
-            return response()->json([
-                'message' => 'You already have an appointment on this date and time slot.'
-            ], 409); // 409 Conflict
+            ], 409);
         }
 
         // Create transaction
         $transaction = Transaction::create([
-            'user_id' => $request->user()->id,
+            'user_id' => $userId,
             'purpose' => $request->purpose,
             'brgy' => $request->barangay,
             'municipality' => $request->city,
             'province' => $request->province,
-            'schedule_date' => $request->schedule_date,
-            'time_slot' => $request->time_slot,
+            'schedule_date' => $scheduleDate,
+            'time_slot' => $timeSlot,
             'status' => 'pending',
         ]);
 
         // Load the user relationship
         $transaction->load('user');
 
+        \Log::info("Transaction created successfully. New counts - Unique users: " . ($uniqueUserCount + ($userHasBookingInSlot ? 0 : 1)) . ", User transactions: " . ($userTransactionCount + 1));
+
         return response()->json([
             'message' => 'Appointment created successfully',
-            'transaction' => $transaction
+            'transaction' => $transaction,
+            'slot_info' => [
+                'unique_users' => $uniqueUserCount + ($userHasBookingInSlot ? 0 : 1),
+                'your_transactions_in_slot' => $userTransactionCount + 1,
+                'remaining_user_slots' => max(0, $maxUsersPerSlot - ($uniqueUserCount + ($userHasBookingInSlot ? 0 : 1))),
+                'remaining_your_transactions' => max(0, $maxTransactionsPerUserPerSlot - ($userTransactionCount + 1))
+            ]
         ], 201);
     }
 
@@ -522,11 +549,13 @@ class TransactionController extends Controller
     public function getAvailableSlots(Request $request)
     {
         $request->validate([
-            'date' => 'required|date|after_or_equal:today'
+            'date' => 'required|date|after_or_equal:today',
+            'user_id' => 'nullable|integer' // Optional: to check user-specific limits
         ]);
 
         \Log::info('=== getAvailableSlots called ===');
         \Log::info('Requested date: ' . $request->date);
+        \Log::info('User ID: ' . ($request->user_id ?? 'not provided'));
 
         $allSlots = [
             'morning' => [
@@ -543,11 +572,13 @@ class TransactionController extends Controller
             ]
         ];
 
-        // Maximum appointments per time slot
-        $maxAppointmentsPerSlot = 5;
+        // Maximum unique users per time slot
+        $maxUsersPerSlot = 5;
+        
+        // Maximum transactions per user per time slot
+        $maxTransactionsPerUserPerSlot = 3;
 
-        // Get count of UNIQUE USERS (not total requests) for each slot
-        // This ensures multiple appointments by the same user on same date/time only count once
+        // Get count of UNIQUE USERS for each slot
         $slotCounts = Transaction::whereRaw('DATE(schedule_date) = ?', [$request->date])
             ->whereIn('status', ['pending', 'approved'])
             ->select('time_slot', \DB::raw('COUNT(DISTINCT user_id) as count'))
@@ -555,7 +586,21 @@ class TransactionController extends Controller
             ->pluck('count', 'time_slot')
             ->toArray();
 
-        \Log::info('Slot counts from database: ' . json_encode($slotCounts));
+        \Log::info('Unique user counts per slot: ' . json_encode($slotCounts));
+
+        // If user_id is provided, get their transaction counts per slot
+        $userTransactionCounts = [];
+        if ($request->user_id) {
+            $userTransactionCounts = Transaction::whereRaw('DATE(schedule_date) = ?', [$request->date])
+                ->where('user_id', $request->user_id)
+                ->whereIn('status', ['pending', 'approved'])
+                ->select('time_slot', \DB::raw('COUNT(*) as count'))
+                ->groupBy('time_slot')
+                ->pluck('count', 'time_slot')
+                ->toArray();
+            
+            \Log::info('User transaction counts per slot: ' . json_encode($userTransactionCounts));
+        }
 
         // Determine which slots are full and which are available
         $availableSlots = [
@@ -567,36 +612,60 @@ class TransactionController extends Controller
         $slotAvailability = [];
 
         foreach ($allSlots['morning'] as $slot) {
-            $currentCount = $slotCounts[$slot] ?? 0;
-            $remainingSlots = $maxAppointmentsPerSlot - $currentCount;
+            $uniqueUserCount = $slotCounts[$slot] ?? 0;
+            $remainingUserSlots = $maxUsersPerSlot - $uniqueUserCount;
+            
+            $userTransactionCount = $userTransactionCounts[$slot] ?? 0;
+            $userCanBook = $userTransactionCount < $maxTransactionsPerUserPerSlot;
+            
+            // Check if user has already booked in this slot
+            $userHasBookingInSlot = $userTransactionCount > 0;
             
             $slotAvailability[$slot] = [
-                'total' => $maxAppointmentsPerSlot,
-                'booked' => $currentCount,
-                'available' => $remainingSlots
+                'total_user_slots' => $maxUsersPerSlot,
+                'booked_users' => $uniqueUserCount,
+                'available_user_slots' => $remainingUserSlots,
+                'user_transactions' => $userTransactionCount,
+                'user_can_book' => $userCanBook,
+                'max_transactions_per_user' => $maxTransactionsPerUserPerSlot
             ];
             
-            if ($currentCount >= $maxAppointmentsPerSlot) {
-                $fullSlots[] = $slot;
-            } else {
+            // Slot is available if:
+            // 1. There are remaining user slots OR
+            // 2. Current user already has booking in this slot (and hasn't reached transaction limit)
+            $isAvailable = ($uniqueUserCount < $maxUsersPerSlot) || ($userHasBookingInSlot && $userCanBook);
+            
+            if ($isAvailable) {
                 $availableSlots['morning'][] = $slot;
+            } else {
+                $fullSlots[] = $slot;
             }
         }
 
         foreach ($allSlots['afternoon'] as $slot) {
-            $currentCount = $slotCounts[$slot] ?? 0;
-            $remainingSlots = $maxAppointmentsPerSlot - $currentCount;
+            $uniqueUserCount = $slotCounts[$slot] ?? 0;
+            $remainingUserSlots = $maxUsersPerSlot - $uniqueUserCount;
+            
+            $userTransactionCount = $userTransactionCounts[$slot] ?? 0;
+            $userCanBook = $userTransactionCount < $maxTransactionsPerUserPerSlot;
+            
+            $userHasBookingInSlot = $userTransactionCount > 0;
             
             $slotAvailability[$slot] = [
-                'total' => $maxAppointmentsPerSlot,
-                'booked' => $currentCount,
-                'available' => $remainingSlots
+                'total_user_slots' => $maxUsersPerSlot,
+                'booked_users' => $uniqueUserCount,
+                'available_user_slots' => $remainingUserSlots,
+                'user_transactions' => $userTransactionCount,
+                'user_can_book' => $userCanBook,
+                'max_transactions_per_user' => $maxTransactionsPerUserPerSlot
             ];
             
-            if ($currentCount >= $maxAppointmentsPerSlot) {
-                $fullSlots[] = $slot;
-            } else {
+            $isAvailable = ($uniqueUserCount < $maxUsersPerSlot) || ($userHasBookingInSlot && $userCanBook);
+            
+            if ($isAvailable) {
                 $availableSlots['afternoon'][] = $slot;
+            } else {
+                $fullSlots[] = $slot;
             }
         }
 
@@ -609,7 +678,10 @@ class TransactionController extends Controller
             'available_slots' => $availableSlots,
             'full_slots' => $fullSlots,
             'slot_details' => $slotAvailability,
-            'max_per_slot' => $maxAppointmentsPerSlot
+            'limits' => [
+                'max_users_per_slot' => $maxUsersPerSlot,
+                'max_transactions_per_user_per_slot' => $maxTransactionsPerUserPerSlot
+            ]
         ], 200);
     }
 
