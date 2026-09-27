@@ -22,20 +22,18 @@
         }
         
         .logo-container {
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            text-align: center;
             margin-bottom: 10px;
         }
         
         .logo {
             width: 60px;
             height: 60px;
-            margin-right: 15px;
+            display: block;
+            margin: 0 auto 10px auto;
         }
         
         .header-text {
-            flex: 1;
             text-align: center;
         }
         
@@ -216,7 +214,7 @@
     <div class="header">
         <div class="logo-container">
             @php
-                $logoPath = public_path('storage/images/nwssu-logo.png');
+                $logoPath = public_path('nwssu-logo.png');
                 $logoExists = file_exists($logoPath);
             @endphp
             @if($logoExists)
