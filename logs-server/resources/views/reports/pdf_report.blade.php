@@ -22,22 +22,23 @@
         }
         
         .logo-container {
-            display: table;
-            width: 100%;
+            text-align: center;
             margin-bottom: 10px;
+            position: relative;
         }
         
         .logo {
             width: 60px;
             height: 60px;
-            float: left;
+            display: inline-block;
+            vertical-align: middle;
             margin-right: 15px;
         }
         
         .header-text {
-            display: table-cell;
+            display: inline-block;
             vertical-align: middle;
-            text-align: center;
+            text-align: left;
         }
         
         .university-name {
