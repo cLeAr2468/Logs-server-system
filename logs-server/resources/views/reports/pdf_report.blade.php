@@ -10,21 +10,19 @@
             line-height: 1.4;
             color: #333;
             margin: 0;
-            padding: 20px;
+            padding: 15px;
         }
         
         .header {
             text-align: center;
-            margin-bottom: 20px;
-            padding-bottom: 15px;
+            margin-bottom: 12px;
+            padding-bottom: 10px;
             border-bottom: 2px solid #15592F;
-            position: relative;
         }
         
         .logo-container {
             text-align: center;
-            margin-bottom: 10px;
-            position: relative;
+            margin-bottom: 8px;
         }
         
         .logo {
@@ -46,85 +44,78 @@
             font-weight: bold;
             color: #15592F;
             text-transform: uppercase;
-            margin: 5px 0;
+            margin: 3px 0;
         }
         
         .campus-name {
             font-size: 10px;
             color: #666;
-            margin: 3px 0;
-        }
-        
-        .doc-info {
-            text-align: right;
-            font-size: 9px;
-            color: #666;
-            margin-bottom: 15px;
+            margin: 2px 0;
         }
         
         .report-title {
             text-align: center;
             font-size: 13px;
             font-weight: bold;
-            margin: 20px 0 10px 0;
+            margin: 8px 0 5px 0;
             color: #15592F;
+        }
+        
+        .period-info {
+            text-align: center;
+            font-size: 10px;
+            margin-bottom: 5px;
         }
         
         .report-subtitle {
             text-align: center;
             font-size: 10px;
             color: #666;
-            margin-bottom: 15px;
-        }
-        
-        .period-info {
-            text-align: center;
-            font-size: 10px;
-            margin-bottom: 15px;
+            margin-bottom: 12px;
         }
         
         .section-title {
             font-size: 11px;
             font-weight: bold;
             color: #15592F;
-            margin: 20px 0 10px 0;
-            padding-bottom: 5px;
+            margin: 12px 0 6px 0;
+            padding-bottom: 4px;
             border-bottom: 1px solid #ddd;
         }
         
         .content-text {
             text-align: justify;
-            margin-bottom: 12px;
+            margin-bottom: 10px;
             line-height: 1.5;
         }
         
         .services-list {
-            margin: 15px 0;
+            margin: 10px 0;
             padding-left: 20px;
         }
         
         .services-list li {
-            margin-bottom: 6px;
+            margin-bottom: 5px;
         }
         
         table {
             width: 100%;
             border-collapse: collapse;
-            margin: 12px 0;
+            margin: 10px 0;
             font-size: 9px;
         }
         
         table thead th {
             background-color: #15592F;
             color: white;
-            padding: 8px 6px;
+            padding: 7px 5px;
             text-align: left;
             font-weight: bold;
             border: 1px solid #15592F;
         }
         
         table td {
-            padding: 6px;
+            padding: 5px;
             border: 1px solid #ddd;
             vertical-align: top;
         }
@@ -135,11 +126,11 @@
         
         .summary-table {
             width: 60%;
-            margin: 15px auto;
+            margin: 10px auto;
         }
         
         .summary-table td {
-            padding: 8px;
+            padding: 6px;
         }
         
         .summary-table .label {
@@ -187,15 +178,15 @@
         }
         
         .footer-section {
-            margin-top: 40px;
-        }
-        
-        .signature-block {
             margin-top: 30px;
         }
         
+        .signature-block {
+            margin-top: 25px;
+        }
+        
         .signature-line {
-            margin-top: 40px;
+            margin-top: 35px;
         }
         
         .signature-name {
@@ -231,50 +222,36 @@
             </div>
         </div>
     </div>
-    
     <!-- Report Title -->
     <div class="report-title">{{ $reportTitle }}</div>
-    
     @if(isset($startDate) && isset($endDate))
     <div class="period-info">
         <strong>Period:</strong> {{ date('F d, Y', strtotime($startDate)) }} to {{ date('F d, Y', strtotime($endDate)) }}
     </div>
     @endif
-    
-    <div class="report-subtitle">
-        Generated: {{ date('F Y') }}
-    </div>
-    
+    <div class="report-subtitle">Generated: {{ date('F Y') }}</div>
     <!-- Introduction Text -->
     @if(isset($introText))
-    <div class="content-text">
-        {{ $introText }}
-    </div>
+    <div class="content-text">{{ $introText }}</div>
     @endif
-    
     <!-- Services List -->
     @if(isset($servicesList) && is_array($servicesList))
-    <div class="content-text">
-        The following frontline services were provided:
-    </div>
+    <div class="content-text">The following frontline services were provided:</div>
     <ul class="services-list">
         @foreach($servicesList as $service)
         <li>{{ $service }}</li>
         @endforeach
     </ul>
     @endif
-    
     <!-- Summary Section -->
     @if(isset($includeSummary) && $includeSummary && isset($statistics))
     <div class="section-title">SUMMARY (STATUS OVERVIEW)</div>
-    
     <table class="summary-table">
         <tr>
             <td class="label">Total Transactions:</td>
             <td class="value">{{ number_format($statistics['total']) }}</td>
         </tr>
     </table>
-    
     <table>
         <thead>
             <tr>
@@ -297,7 +274,6 @@
             @endforeach
         </tbody>
     </table>
-    
     @if(isset($statistics['by_purpose']) && count($statistics['by_purpose']) > 0)
     <div class="section-title">TOP REQUESTED PURPOSES</div>
     <table>
@@ -318,12 +294,10 @@
     </table>
     @endif
     @endif
-    
     <!-- Detailed Transactions -->
     @if(isset($includeDetails) && $includeDetails && isset($transactions) && count($transactions) > 0)
     <div class="page-break"></div>
     <div class="section-title">DETAILED TRANSACTIONS</div>
-    
     <table>
         <thead>
             <tr>
@@ -357,12 +331,12 @@
         </tbody>
     </table>
     @endif
-    
     <!-- Feedback Summary -->
     @if(isset($includeFeedback) && $includeFeedback && isset($feedbackData))
+    @if((isset($includeSummary) && $includeSummary) || (isset($includeDetails) && $includeDetails))
     <div class="page-break"></div>
+    @endif
     <div class="section-title">FEEDBACK SUMMARY</div>
-    
     <table class="summary-table">
         <tr>
             <td class="label">Total Feedback Received:</td>
@@ -373,7 +347,6 @@
             <td class="value">{{ number_format($feedbackData['average_rating'], 2) }} / 5.0</td>
         </tr>
     </table>
-    
     <div class="section-title">RATING DISTRIBUTION</div>
     <table>
         <thead>
@@ -396,7 +369,6 @@
             @endforeach
         </tbody>
     </table>
-    
     @if(isset($feedbackData['feedback_details']) && count($feedbackData['feedback_details']) > 0)
     <div class="section-title">DETAILED FEEDBACK (PER TRANSACTION)</div>
     <table>
@@ -427,14 +399,10 @@
     </table>
     @endif
     @endif
-    
     <!-- Conclusion Text -->
     @if(isset($conclusionText))
-    <div class="content-text" style="margin-top: 20px;">
-        {{ $conclusionText }}
-    </div>
+    <div class="content-text" style="margin-top: 15px;">{{ $conclusionText }}</div>
     @endif
-    
     <!-- Signatures -->
     <div class="footer-section">
         <div class="signature-block">
@@ -444,7 +412,6 @@
                 <div class="signature-title">{{ $preparedByTitle ?? 'SAS Office' }}</div>
             </div>
         </div>
-        
         <div class="signature-block" style="text-align: right;">
             <div style="margin-bottom: 5px;">Noted by:</div>
             <div class="signature-line">
