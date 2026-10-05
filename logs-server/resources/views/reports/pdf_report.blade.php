@@ -274,25 +274,7 @@
             @endforeach
         </tbody>
     </table>
-    @if(isset($statistics['by_purpose']) && count($statistics['by_purpose']) > 0)
-    <div class="section-title">TOP REQUESTED PURPOSES</div>
-    <table>
-        <thead>
-            <tr>
-                <th style="width: 70%;">Purpose</th>
-                <th style="width: 30%; text-align: center;">Count</th>
-            </tr>
-        </thead>
-        <tbody>
-            @foreach($statistics['by_purpose'] as $purpose => $count)
-            <tr>
-                <td>{{ $purpose }}</td>
-                <td style="text-align: center;">{{ number_format($count) }}</td>
-            </tr>
-            @endforeach
-        </tbody>
-    </table>
-    @endif
+
     @endif
     <!-- Detailed Transactions -->
     @if(isset($includeDetails) && $includeDetails && isset($transactions) && count($transactions) > 0)

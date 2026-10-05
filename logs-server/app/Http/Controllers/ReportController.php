@@ -603,29 +603,7 @@ class ReportController extends Controller
             
             $row++; // Empty row
             
-            // Top Purposes
-            if (isset($statistics['by_purpose']) && count($statistics['by_purpose']) > 0) {
-                $sheet->mergeCells("A{$row}:I{$row}");
-                $sheet->setCellValue("A{$row}", 'TOP REQUESTED PURPOSES');
-                $sheet->getStyle("A{$row}")->getFont()->setBold(true);
-                $row++;
-                
-                $sheet->setCellValue("A{$row}", 'Purpose');
-                $sheet->setCellValue("B{$row}", 'Count');
-                $headerStyle = $sheet->getStyle("A{$row}:B{$row}");
-                $headerStyle->getFont()->setBold(true);
-                $headerStyle->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('15592F');
-                $headerStyle->getFont()->getColor()->setRGB('FFFFFF');
-                $row++;
-                
-                foreach ($statistics['by_purpose'] as $purpose => $count) {
-                    $sheet->setCellValue("A{$row}", $purpose);
-                    $sheet->setCellValue("B{$row}", $count);
-                    $row++;
-                }
-                
-                $row++; // Empty row
-            }
+
         }
         
         // Detailed Transactions
@@ -804,14 +782,6 @@ class ReportController extends Controller
                 $percentage = $statistics['total'] > 0 ? round(($count / $statistics['total']) * 100, 1) : 0;
                 fputcsv($output, [ucfirst($status), $count, $percentage . '%']);
             }
-            fputcsv($output, []); // Empty line
-            
-            fputcsv($output, ['Top Requested Purposes']);
-            fputcsv($output, ['Purpose', 'Count']);
-            foreach ($statistics['by_purpose'] as $purpose => $count) {
-                fputcsv($output, [$purpose, $count]);
-            }
-            fputcsv($output, []); // Empty line
             fputcsv($output, []); // Empty line
         }
         
@@ -1046,13 +1016,6 @@ class ReportController extends Controller
                 foreach ($statistics['by_status'] as $status => $count) {
                     $percentage = $statistics['total'] > 0 ? round(($count / $statistics['total']) * 100, 1) : 0;
                     fputcsv($file, [ucfirst($status), $count, $percentage . '%']);
-                }
-                fputcsv($file, []); // Empty line
-                
-                fputcsv($file, ['Top Requested Purposes']);
-                fputcsv($file, ['Purpose', 'Count']);
-                foreach ($statistics['by_purpose'] as $purpose => $count) {
-                    fputcsv($file, [$purpose, $count]);
                 }
                 fputcsv($file, []); // Empty line
                 fputcsv($file, []); // Empty line
