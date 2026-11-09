@@ -221,8 +221,8 @@ class ReportController extends Controller
                 'include_feedback' => $includeFeedback
             ]);
             
-            // Build transactions query
-            $query = Transaction::with('user');
+            // Build transactions query with PURE RELATIONSHIPS
+            $query = Transaction::with(['user.masterlist', 'purpose']);
             
             if ($startDate) {
                 $query->whereDate('created_at', '>=', $startDate);
@@ -232,12 +232,15 @@ class ReportController extends Controller
                 $query->whereDate('created_at', '<=', $endDate);
             }
             
-            // Filter by purpose if report type ends with "Report"
+            // Filter by purpose using PURE RELATIONSHIP (purpose_id FK)
             if (strpos($reportType, ' Report') !== false) {
                 $purposeName = str_replace(' Report', '', $reportType);
                 // Check if this purpose exists in database
                 if (in_array($purposeName, $allPurposes)) {
-                    $query->where('purpose', $purposeName);
+                    // Use JOIN to filter by purpose name via relationship
+                    $query->whereHas('purpose', function($q) use ($purposeName) {
+                        $q->where('name', $purposeName);
+                    });
                 }
             }
             
@@ -807,24 +810,48 @@ class ReportController extends Controller
                 'Created At'
             ]);
             
-            // Add data rows
+            // Add data rows using PURE RELATIONSHIPS
             foreach ($transactions as $transaction) {
-                $studentName = $transaction->user 
-                    ? trim($transaction->user->fname . ' ' . $transaction->user->mname . ' ' . $transaction->user->lname)
+                // Get student name from user->masterlist relationship
+                $studentName = 'N/A';
+                if ($transaction->user && $transaction->user->masterlist) {
+                    $studentName = trim(
+                        $transaction->user->masterlist->fname . ' ' . 
+                        ($transaction->user->masterlist->mname ? $transaction->user->masterlist->mname . ' ' : '') . 
+                        $transaction->user->masterlist->lname
+                    );
+                }
+                
+                // Get address from user relationship
+                $address = 'N/A';
+                if ($transaction->user) {
+                    $address = trim(
+                        ($transaction->user->barangay ?? '') . ', ' . 
+                        ($transaction->user->municipality ?? '') . ', ' . 
+                        ($transaction->user->province ?? '') . ', ' .
+                        ($transaction->user->region ?? '')
+                    );
+                    $address = trim($address, ', ');
+                }
+                
+                // Get purpose name from purpose relationship
+                $purposeName = $transaction->purpose ? $transaction->purpose->name : 'N/A';
+                
+                // Get course and year level from user->masterlist relationship
+                $course = $transaction->user && $transaction->user->masterlist 
+                    ? ($transaction->user->masterlist->course ?? 'N/A') 
+                    : 'N/A';
+                $yearLevel = $transaction->user && $transaction->user->masterlist 
+                    ? ($transaction->user->masterlist->year_level ?? 'N/A') 
                     : 'N/A';
                 
-                $address = trim($transaction->street_house_no . ', ' . 
-                              $transaction->brgy . ', ' . 
-                              $transaction->municipality . ', ' . 
-                              $transaction->province);
-                
                 fputcsv($output, [
-                    $transaction->created_at->format('Y-m-d'),
-                    $transaction->user->student_id ?? 'N/A',
+                    $transaction->date_requested ? $transaction->date_requested->format('Y-m-d') : $transaction->created_at->format('Y-m-d'),
+                    $transaction->user ? $transaction->user->student_id : 'N/A',
                     $studentName,
-                    $transaction->user->course ?? 'N/A',
-                    $transaction->user->year_level ?? 'N/A',
-                    $transaction->purpose,
+                    $course,
+                    $yearLevel,
+                    $purposeName,
                     $address,
                     $transaction->schedule_date,
                     $transaction->time_slot,
@@ -921,7 +948,10 @@ class ReportController extends Controller
             'cancelled' => $transactions->where('status', 'cancelled')->count(),
         ];
         
-        $purposeCounts = $transactions->groupBy('purpose')->map(function($group) {
+        // Group by purpose using PURE RELATIONSHIP
+        $purposeCounts = $transactions->groupBy(function($transaction) {
+            return $transaction->purpose ? $transaction->purpose->name : 'Unknown';
+        })->map(function($group) {
             return $group->count();
         })->sortDesc()->take(5);
         
