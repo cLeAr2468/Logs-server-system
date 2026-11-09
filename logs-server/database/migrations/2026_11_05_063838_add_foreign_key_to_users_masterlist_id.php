@@ -8,14 +8,15 @@ return new class extends Migration
 {
     /**
      * Run the migrations.
+     * Add foreign key constraint to users.masterlist_id after masterlist table exists
      */
     public function up(): void
     {
         Schema::table('users', function (Blueprint $table) {
-            // Only add address and profile columns
-            // Status column already exists in the base users table
-            $table->text('address')->nullable()->after('year_level');
-            $table->string('profile')->nullable()->after('status');
+            $table->foreign('masterlist_id')
+                  ->references('id')
+                  ->on('masterlist')
+                  ->onDelete('cascade');
         });
     }
 
@@ -25,8 +26,7 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('users', function (Blueprint $table) {
-            // Only drop the columns we added
-            $table->dropColumn(['address', 'profile']);
+            $table->dropForeign(['masterlist_id']);
         });
     }
 };

@@ -18,12 +18,35 @@ class UserController extends Controller
     public function index()
     {
         try {
-            $users = User::orderBy('created_at', 'desc')->get();
+            // Eager load masterlist relationship
+            $users = User::with('masterlist')->orderBy('created_at', 'desc')->get();
+
+            // Transform data to include masterlist fields
+            $usersData = $users->map(function($user) {
+                return [
+                    'id' => $user->id,
+                    'student_id' => $user->student_id,
+                    'fname' => $user->masterlist->fname ?? '',
+                    'mname' => $user->masterlist->mname ?? '',
+                    'lname' => $user->masterlist->lname ?? '',
+                    'email' => $user->masterlist->email ?? '',
+                    'course' => $user->masterlist->course ?? '',
+                    'year_level' => $user->masterlist->year_level ?? '',
+                    'suffix' => $user->suffix,
+                    'region' => $user->region,
+                    'province' => $user->province,
+                    'municipality' => $user->municipality,
+                    'barangay' => $user->barangay,
+                    'status' => $user->status,
+                    'created_at' => $user->created_at,
+                    'updated_at' => $user->updated_at,
+                ];
+            });
 
             return response()->json([
                 'success' => true,
-                'users' => $users,
-                'total' => $users->count(),
+                'users' => $usersData,
+                'total' => $usersData->count(),
             ], 200);
         } catch (\Exception $e) {
             return response()->json([
@@ -46,15 +69,11 @@ class UserController extends Controller
             // Validate the request
             $validator = Validator::make($request->all(), [
                 'student_id' => 'required|string',
-                'fname' => 'required|string|max:255',
-                'mname' => 'nullable|string|max:255',
-                'lname' => 'required|string|max:255',
-                'email' => 'required|email',
-                'barangay' => 'required|string|max:255',
-                'municipality' => 'required|string|max:255',
+                'suffix' => 'nullable|string',
+                'region' => 'required|string|max:255',
                 'province' => 'required|string|max:255',
-                'course' => 'required|string',
-                'year_level' => 'required|string',
+                'municipality' => 'required|string|max:255',
+                'barangay' => 'required|string|max:255',
                 'password' => 'required|string|min:6',
             ]);
 
@@ -92,37 +111,21 @@ class UserController extends Controller
                 ], 422);
             }
 
-            // Check if email already exists in users table
-            if (User::where('email', $request->email)->exists()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'This email is already registered',
-                ], 422);
-            }
-
-            // Check if email exists in staff table
-            if (\App\Models\Staff::where('email', $request->email)->exists()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'This email is registered as a staff email',
-                ], 422);
-            }
-
-            // Create user account
+            // Create user account with masterlist relationship
             $user = User::create([
                 'student_id' => $request->student_id,
-                'fname' => $request->fname,
-                'mname' => $request->mname,
-                'lname' => $request->lname,
-                'email' => $request->email,
-                'barangay' => $request->barangay,
-                'municipality' => $request->municipality,
+                'masterlist_id' => $masterlistEntry->id,
+                'suffix' => $request->suffix,
+                'region' => $request->region,
                 'province' => $request->province,
-                'course' => $request->course,
-                'year_level' => $request->year_level,
+                'municipality' => $request->municipality,
+                'barangay' => $request->barangay,
                 'status' => 'Active',
                 'password' => Hash::make($request->password),
             ]);
+
+            // Load masterlist relationship
+            $user->load('masterlist');
 
             // Log activity (created by admin or staff)
             $authUser = $request->user();
@@ -134,7 +137,7 @@ class UserController extends Controller
                         'user_name' => trim($authUser->fname . ' ' . $authUser->lname),
                         'action' => 'created',
                         'module' => 'Users',
-                        'description' => 'Created client account: ' . $user->fname . ' ' . $user->lname . ' (' . $user->student_id . ')',
+                        'description' => 'Created client account: ' . $user->masterlist->fname . ' ' . $user->masterlist->lname . ' (' . $user->student_id . ')',
                         'ip_address' => $request->ip(),
                     ]);
                 } catch (\Exception $logError) {
@@ -149,16 +152,17 @@ class UserController extends Controller
                 'user' => [
                     'id' => $user->id,
                     'student_id' => $user->student_id,
-                    'fname' => $user->fname,
-                    'mname' => $user->mname,
-                    'lname' => $user->lname,
-                    'email' => $user->email,
-                    'barangay' => $user->barangay,
-                    'municipality' => $user->municipality,
+                    'fname' => $user->masterlist->fname,
+                    'mname' => $user->masterlist->mname,
+                    'lname' => $user->masterlist->lname,
+                    'email' => $user->masterlist->email,
+                    'course' => $user->masterlist->course,
+                    'year_level' => $user->masterlist->year_level,
+                    'suffix' => $user->suffix,
+                    'region' => $user->region,
                     'province' => $user->province,
-                    'course' => $user->course,
-                    'year_level' => $user->year_level,
-                    'status' => $user->status,
+                    'municipality' => $user->municipality,
+                    'barangay' => $user->barangay,
                 ],
             ], 201);
         } catch (\Exception $e) {
@@ -179,11 +183,26 @@ class UserController extends Controller
     public function show($id)
     {
         try {
-            $user = User::findOrFail($id);
+            $user = User::with('masterlist')->findOrFail($id);
 
             return response()->json([
                 'success' => true,
-                'user' => $user,
+                'user' => [
+                    'id' => $user->id,
+                    'student_id' => $user->student_id,
+                    'fname' => $user->masterlist->fname ?? '',
+                    'mname' => $user->masterlist->mname ?? '',
+                    'lname' => $user->masterlist->lname ?? '',
+                    'email' => $user->masterlist->email ?? '',
+                    'course' => $user->masterlist->course ?? '',
+                    'year_level' => $user->masterlist->year_level ?? '',
+                    'suffix' => $user->suffix,
+                    'region' => $user->region,
+                    'province' => $user->province,
+                    'municipality' => $user->municipality,
+                    'barangay' => $user->barangay,
+                    'status' => $user->status,
+                ],
             ], 200);
         } catch (\Exception $e) {
             return response()->json([

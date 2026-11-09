@@ -12,4 +12,12 @@ class Purpose extends Model
     protected $fillable = [
         'name',
     ];
+
+    /**
+     * Get all transactions for this purpose (Pure Relationship)
+     */
+    public function transactions()
+    {
+        return $this->hasMany(Transaction::class, 'purpose_id', 'id');
+    }
 }

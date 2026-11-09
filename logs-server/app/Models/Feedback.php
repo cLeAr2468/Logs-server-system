@@ -31,7 +31,7 @@ class Feedback extends Model
      */
     public function user()
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsTo(User::class, 'user_id', 'id');
     }
 
     /**
@@ -39,6 +39,25 @@ class Feedback extends Model
      */
     public function transaction()
     {
-        return $this->belongsTo(Transaction::class);
+        return $this->belongsTo(Transaction::class, 'transaction_id', 'id');
+    }
+    
+    /**
+     * Append transaction data with purpose for display
+     */
+    protected $appends = ['transaction_data'];
+    
+    public function getTransactionDataAttribute()
+    {
+        if ($this->transaction) {
+            return [
+                'id' => $this->transaction->id,
+                'purpose' => $this->transaction->purpose ? $this->transaction->purpose->name : $this->transaction_purpose,
+                'schedule_date' => $this->transaction->schedule_date,
+                'time_slot' => $this->transaction->time_slot,
+                'status' => $this->transaction->status,
+            ];
+        }
+        return null;
     }
 }

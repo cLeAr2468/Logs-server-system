@@ -15,15 +15,17 @@ class TransactionStatusMail extends Mailable
     public $transaction;
     public $status;
     public $studentName;
+    public $rejectionReason;
 
     /**
      * Create a new message instance.
      */
-    public function __construct($transaction, $status, $studentName)
+    public function __construct($transaction, $status, $studentName, $rejectionReason = null)
     {
         $this->transaction = $transaction;
         $this->status = $status;
         $this->studentName = $studentName;
+        $this->rejectionReason = $rejectionReason;
     }
 
     /**

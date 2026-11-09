@@ -96,14 +96,6 @@ class MasterlistController extends Controller
                 ], 422);
             }
 
-            // Check if email exists in users table
-            if (\App\Models\User::where('email', $request->email)->exists()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'This email is already registered as a client account',
-                ], 422);
-            }
-
             // Check if email exists in staff table
             if (\App\Models\Staff::where('email', $request->email)->exists()) {
                 return response()->json([

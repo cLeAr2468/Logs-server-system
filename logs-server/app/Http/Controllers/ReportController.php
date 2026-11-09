@@ -19,7 +19,7 @@ use PhpOffice\PhpSpreadsheet\Style\Alignment;
 class ReportController extends Controller
 {
     /**
-     * Get dashboard statistics for reports
+     * Get dashboard statistics for reports - Pure Relationship
      */
     public function getStatistics()
     {
@@ -34,9 +34,10 @@ class ReportController extends Controller
             // Average processing time (mock for now - in reality calculate from timestamps)
             $avgProcessingTime = '12.5 min';
             
-            // Most requested purpose
-            $mostRequested = Transaction::select('purpose', DB::raw('count(*) as count'))
-                ->groupBy('purpose')
+            // Most requested purpose (Pure Relationship)
+            $mostRequested = Transaction::join('purposes', 'transactions.purpose_id', '=', 'purposes.id')
+                ->select('purposes.name as purpose', \DB::raw('count(*) as count'))
+                ->groupBy('purposes.id', 'purposes.name')
                 ->orderBy('count', 'desc')
                 ->first();
             
@@ -81,19 +82,20 @@ class ReportController extends Controller
     }
     
     /**
-     * Get transactions by purpose (for bar chart)
+     * Get transactions by purpose (for bar chart) - Pure Relationship
      */
     public function getTransactionsByPurpose()
     {
         try {
-            $purposeData = Transaction::select('purpose', DB::raw('count(*) as value'))
-                ->groupBy('purpose')
+            $purposeData = Transaction::join('purposes', 'transactions.purpose_id', '=', 'purposes.id')
+                ->select('purposes.name', \DB::raw('count(*) as value'))
+                ->groupBy('purposes.id', 'purposes.name')
                 ->orderBy('value', 'desc')
                 ->get()
                 ->map(function ($item, $index) {
                     $colors = ['#15592F', '#f59e0b', '#3b82f6', '#155d59', '#8b5cf6', '#ef4444'];
                     return [
-                        'name' => $item->purpose,
+                        'name' => $item->name,
                         'value' => $item->value,
                         'fill' => $colors[$index % count($colors)]
                     ];

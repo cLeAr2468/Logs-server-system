@@ -42,15 +42,11 @@ class AuthController extends Controller
     {
         $request->validate([
             'student_id' => 'required',
-            'fname' => 'required',
-            'mname' => 'nullable',
-            'lname' => 'required',
-            'email' => 'required|email',
-            'barangay' => 'required|string|max:255',
-            'municipality' => 'required|string|max:255',
+            'suffix' => 'nullable|string|in:Jr.,Sr.,II,III,IV,V',
+            'region' => 'required|string|max:255',
             'province' => 'required|string|max:255',
-            'course' => 'required',
-            'year_level' => 'required',
+            'municipality' => 'required|string|max:255',
+            'barangay' => 'required|string|max:255',
             'password' => 'required|min:6',
         ]);
 
@@ -61,6 +57,25 @@ class AuthController extends Controller
             return response()->json([
                 'message' => 'Student ID not found in masterlist. Please contact the administrator.'
             ], 400);
+        }
+
+        // If user provided any masterlist fields (edited), update masterlist
+        $masterlistUpdated = false;
+        if ($request->has('fname') || $request->has('lname') || $request->has('email') || 
+            $request->has('course') || $request->has('year_level')) {
+            
+            $updateData = [];
+            if ($request->filled('fname')) $updateData['fname'] = $request->fname;
+            if ($request->filled('mname')) $updateData['mname'] = $request->mname;
+            if ($request->filled('lname')) $updateData['lname'] = $request->lname;
+            if ($request->filled('email')) $updateData['email'] = $request->email;
+            if ($request->filled('course')) $updateData['course'] = $request->course;
+            if ($request->filled('year_level')) $updateData['year_level'] = $request->year_level;
+            
+            if (!empty($updateData)) {
+                $masterlistEntry->update($updateData);
+                $masterlistUpdated = true;
+            }
         }
 
         // Check if student_id already registered in users table
@@ -77,87 +92,78 @@ class AuthController extends Controller
             ], 422);
         }
 
-        // Check if email already registered in users table
-        if (User::where('email', $request->email)->exists()) {
-            return response()->json([
-                'message' => 'This email is already registered. Please login instead.'
-            ], 422);
-        }
-
-        // Check if email exists in staff table
-        if (\App\Models\Staff::where('email', $request->email)->exists()) {
-            return response()->json([
-                'message' => 'This email is registered as a staff email. Please use your staff account.'
-            ], 422);
-        }
-
-        // Create user account
+        // Create user account (pure relationship - no duplicate data)
         $user = User::create([
             'student_id' => $request->student_id,
-            'fname' => $request->fname,
-            'mname' => $request->mname,
-            'lname' => $request->lname,
-            'email' => $request->email,
-            'barangay' => $request->barangay,
-            'municipality' => $request->municipality,
+            'suffix' => $request->suffix,
+            'region' => $request->region,
             'province' => $request->province,
-            'course' => $request->course,
-            'year_level' => $request->year_level,
+            'municipality' => $request->municipality,
+            'barangay' => $request->barangay,
             'status' => 'Active',
             'password' => Hash::make($request->password),
         ]);
 
-        // Log activity - check if created by admin/staff or self-registration
-        $authUser = $request->user(); // Will be null for public registration
+        // Log activity
+        $authUser = $request->user();
         if ($authUser) {
-            // Created by admin or staff
             try {
+                $description = 'Created client account: ' . $user->masterlist->fname . ' ' . $user->masterlist->lname . ' (' . $user->student_id . ')';
+                if ($masterlistUpdated) {
+                    $description .= ' (Updated masterlist info)';
+                }
+                
                 ActivityLog::create([
                     'user_type' => $authUser instanceof \App\Models\Admin ? 'admin' : 'staff',
                     'user_id' => $authUser instanceof \App\Models\Admin ? $authUser->admin_id : $authUser->staff_id,
                     'user_name' => trim($authUser->fname . ' ' . $authUser->lname),
                     'action' => 'created',
                     'module' => 'Users',
-                    'description' => 'Created client account: ' . $user->fname . ' ' . $user->lname . ' (' . $user->student_id . ')',
+                    'description' => $description,
                     'ip_address' => $request->ip(),
                 ]);
             } catch (\Exception $logError) {
-                // Silently fail activity logging - don't break the registration
                 \Log::error('Activity log failed during user creation: ' . $logError->getMessage());
             }
         } else {
-            // Self-registration by client
             try {
+                $description = 'Client self-registered: ' . $user->masterlist->fname . ' ' . $user->masterlist->lname . ' (' . $user->student_id . ')';
+                if ($masterlistUpdated) {
+                    $description .= ' (Updated masterlist info)';
+                }
+                
                 ActivityLog::create([
                     'user_type' => 'client',
                     'user_id' => $user->student_id,
-                    'user_name' => trim($user->fname . ' ' . $user->lname),
+                    'user_name' => trim($user->masterlist->fname . ' ' . $user->masterlist->lname),
                     'action' => 'registered',
                     'module' => 'Authentication',
-                    'description' => 'Client self-registered: ' . $user->fname . ' ' . $user->lname . ' (' . $user->student_id . ')',
+                    'description' => $description,
                     'ip_address' => $request->ip(),
                 ]);
             } catch (\Exception $logError) {
-                // Silently fail activity logging - don't break the registration
                 \Log::error('Activity log failed during self-registration: ' . $logError->getMessage());
             }
         }
 
+        // Load masterlist relationship for response
+        $user->load('masterlist');
+
         return response()->json([
-            'message' => 'User registered successfully',
+            'message' => 'User registered successfully' . ($masterlistUpdated ? ' (Masterlist info updated)' : ''),
             'user' => [
-                'id' => $user->id,
                 'student_id' => $user->student_id,
-                'fname' => $user->fname,
-                'mname' => $user->mname,
-                'lname' => $user->lname,
-                'email' => $user->email,
-                'barangay' => $user->barangay,
-                'municipality' => $user->municipality,
+                'fname' => $user->masterlist->fname,
+                'mname' => $user->masterlist->mname,
+                'lname' => $user->masterlist->lname,
+                'email' => $user->masterlist->email,
+                'course' => $user->masterlist->course,
+                'year_level' => $user->masterlist->year_level,
+                'suffix' => $user->suffix,
+                'region' => $user->region,
                 'province' => $user->province,
-                'course' => $user->course,
-                'year_level' => $user->year_level,
-                'status' => $user->status,
+                'municipality' => $user->municipality,
+                'barangay' => $user->barangay,
             ]
         ], 201);
     }
@@ -171,7 +177,10 @@ class AuthController extends Controller
                 'password' => 'required'
             ]);
 
-            $user = User::where('email', $request->email)->first();
+            // Find user by email through masterlist relationship
+            $user = User::whereHas('masterlist', function($query) use ($request) {
+                $query->where('email', $request->email);
+            })->with('masterlist')->first();
 
             if (!$user || !Hash::check($request->password, $user->password)) {
                 return response()->json([
@@ -187,7 +196,7 @@ class AuthController extends Controller
                 ActivityLog::create([
                     'user_type' => 'client',
                     'user_id' => $user->student_id,
-                    'user_name' => trim($user->fname . ' ' . $user->lname),
+                    'user_name' => trim($user->masterlist->fname . ' ' . $user->masterlist->lname),
                     'action' => 'logged_in',
                     'module' => 'Authentication',
                     'description' => 'Client logged in',
@@ -203,28 +212,24 @@ class AuthController extends Controller
                 'user' => [
                     'id' => $user->id,
                     'student_id' => $user->student_id,
-                    'fname' => $user->fname,
-                    'mname' => $user->mname,
-                    'lname' => $user->lname,
-                    'full_name' => $user->full_name,
-                    'email' => $user->email,
-                    'barangay' => $user->barangay ?? '',
-                    'municipality' => $user->municipality ?? '',
-                    'province' => $user->province ?? '',
-                    'course' => $user->course,
-                    'year_level' => $user->year_level,
-                    'status' => $user->status ?? 'Active',
-                    'address' => $user->address ?? '',
+                    'fname' => $user->masterlist->fname,
+                    'mname' => $user->masterlist->mname,
+                    'lname' => $user->masterlist->lname,
+                    'email' => $user->masterlist->email,
+                    'course' => $user->masterlist->course,
+                    'year_level' => $user->masterlist->year_level,
+                    'suffix' => $user->suffix,
+                    'region' => $user->region,
+                    'province' => $user->province,
+                    'municipality' => $user->municipality,
+                    'barangay' => $user->barangay,
+                    'status' => $user->status,
                 ]
             ]);
         } catch (\Exception $e) {
-            \Log::error('Login error', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
-            
             return response()->json([
-                'message' => 'Login failed. Please try again.'
+                'message' => 'Login failed',
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -232,7 +237,7 @@ class AuthController extends Controller
     // UPDATE USER
     public function update(Request $request, $id)
     {
-        $user = User::find($id);
+        $user = User::with('masterlist')->find($id);
         
         if (!$user) {
             return response()->json([
@@ -241,42 +246,35 @@ class AuthController extends Controller
         }
 
         $request->validate([
-            'student_id' => 'sometimes|required|unique:users,student_id,' . $id,
-            'fname' => 'sometimes|required',
-            'mname' => 'nullable',
-            'lname' => 'sometimes|required',
-            'email' => 'sometimes|required|email|unique:users,email,' . $id,
-            'course' => 'sometimes|required',
-            'year_level' => 'sometimes|required',
+            'suffix' => 'nullable|string',
+            'region' => 'nullable|string',
+            'province' => 'nullable|string',
+            'municipality' => 'nullable|string',
+            'barangay' => 'nullable|string',
             'password' => 'sometimes|required|min:6',
         ]);
 
-        if ($request->has('student_id')) {
-            $user->student_id = $request->student_id;
+        // Only allow updating user-specific fields (address, password)
+        // Name, email, course, year_level should be updated in masterlist
+        
+        if ($request->has('suffix')) {
+            $user->suffix = $request->suffix;
         }
         
-        if ($request->has('fname')) {
-            $user->fname = $request->fname;
+        if ($request->has('region')) {
+            $user->region = $request->region;
         }
         
-        if ($request->has('mname')) {
-            $user->mname = $request->mname;
+        if ($request->has('province')) {
+            $user->province = $request->province;
         }
         
-        if ($request->has('lname')) {
-            $user->lname = $request->lname;
+        if ($request->has('municipality')) {
+            $user->municipality = $request->municipality;
         }
         
-        if ($request->has('email')) {
-            $user->email = $request->email;
-        }
-        
-        if ($request->has('course')) {
-            $user->course = $request->course;
-        }
-        
-        if ($request->has('year_level')) {
-            $user->year_level = $request->year_level;
+        if ($request->has('barangay')) {
+            $user->barangay = $request->barangay;
         }
         
         if ($request->has('password')) {
@@ -287,7 +285,21 @@ class AuthController extends Controller
 
         return response()->json([
             'message' => 'User updated successfully',
-            'user' => $user
+            'user' => [
+                'id' => $user->id,
+                'student_id' => $user->student_id,
+                'fname' => $user->masterlist->fname,
+                'mname' => $user->masterlist->mname,
+                'lname' => $user->masterlist->lname,
+                'email' => $user->masterlist->email,
+                'course' => $user->masterlist->course,
+                'year_level' => $user->masterlist->year_level,
+                'suffix' => $user->suffix,
+                'region' => $user->region,
+                'province' => $user->province,
+                'municipality' => $user->municipality,
+                'barangay' => $user->barangay,
+            ]
         ]);
     }
 
@@ -312,22 +324,23 @@ class AuthController extends Controller
     // GET PROFILE
     public function getProfile(Request $request)
     {
-        $user = $request->user();
+        $user = $request->user()->load('masterlist');
 
         return response()->json([
             'user' => [
                 'id' => $user->id,
                 'student_id' => $user->student_id,
-                'firstname' => $user->fname,
-                'middlename' => $user->mname,
-                'lastname' => $user->lname,
-                'email' => $user->email,
-                'barangay' => $user->barangay ?? '',
-                'municipality' => $user->municipality ?? '',
+                'firstname' => $user->masterlist->fname,
+                'middlename' => $user->masterlist->mname,
+                'lastname' => $user->masterlist->lname,
+                'email' => $user->masterlist->email,
+                'course' => $user->masterlist->course,
+                'year' => $user->masterlist->year_level,
+                'suffix' => $user->suffix ?? '',
+                'region' => $user->region ?? '',
                 'province' => $user->province ?? '',
-                'course' => $user->course,
-                'year' => $user->year_level,
-                'address' => $user->address ?? '',
+                'municipality' => $user->municipality ?? '',
+                'barangay' => $user->barangay ?? '',
                 'status' => $user->status ?? 'Active',
                 'profile' => $user->profile ?? '',
             ]
@@ -337,42 +350,25 @@ class AuthController extends Controller
     // UPDATE PROFILE
     public function updateProfile(Request $request)
     {
-        $user = $request->user();
+        $user = $request->user()->load('masterlist');
 
         $request->validate([
-            'student_id' => 'sometimes|required|unique:users,student_id,' . $user->id,
-            'firstname' => 'sometimes|required',
-            'middlename' => 'nullable',
-            'lastname' => 'sometimes|required',
-            'email' => 'sometimes|required|email|unique:users,email,' . $user->id,
+            'suffix' => 'nullable|string',
+            'region' => 'nullable|string',
             'barangay' => 'nullable|string|max:255',
             'municipality' => 'nullable|string|max:255',
             'province' => 'nullable|string|max:255',
-            'course' => 'sometimes|required',
-            'year' => 'sometimes|required',
-            'address' => 'nullable',
-            'status' => 'nullable',
         ]);
 
-        // Update user fields
-        if ($request->has('student_id')) {
-            $user->student_id = $request->student_id;
+        // Only allow updating user-specific fields (address info)
+        // Name, email, course, year_level are READ-ONLY from masterlist
+        
+        if ($request->has('suffix')) {
+            $user->suffix = $request->suffix;
         }
         
-        if ($request->has('firstname')) {
-            $user->fname = $request->firstname;
-        }
-        
-        if ($request->has('middlename')) {
-            $user->mname = $request->middlename;
-        }
-        
-        if ($request->has('lastname')) {
-            $user->lname = $request->lastname;
-        }
-        
-        if ($request->has('email')) {
-            $user->email = $request->email;
+        if ($request->has('region')) {
+            $user->region = $request->region;
         }
         
         if ($request->has('barangay')) {
@@ -386,22 +382,6 @@ class AuthController extends Controller
         if ($request->has('province')) {
             $user->province = $request->province;
         }
-        
-        if ($request->has('course')) {
-            $user->course = $request->course;
-        }
-        
-        if ($request->has('year')) {
-            $user->year_level = $request->year;
-        }
-        
-        if ($request->has('address')) {
-            $user->address = $request->address;
-        }
-        
-        if ($request->has('status')) {
-            $user->status = $request->status;
-        }
 
         $user->save();
 
@@ -410,17 +390,18 @@ class AuthController extends Controller
             'user' => [
                 'id' => $user->id,
                 'student_id' => $user->student_id,
-                'firstname' => $user->fname,
-                'middlename' => $user->mname,
-                'lastname' => $user->lname,
-                'email' => $user->email,
-                'barangay' => $user->barangay ?? '',
-                'municipality' => $user->municipality ?? '',
-                'province' => $user->province ?? '',
-                'course' => $user->course,
-                'year' => $user->year_level,
-                'address' => $user->address ?? '',
-                'status' => $user->status ?? 'Active',
+                'firstname' => $user->masterlist->fname,
+                'middlename' => $user->masterlist->mname,
+                'lastname' => $user->masterlist->lname,
+                'email' => $user->masterlist->email,
+                'course' => $user->masterlist->course,
+                'year' => $user->masterlist->year_level,
+                'suffix' => $user->suffix,
+                'region' => $user->region,
+                'province' => $user->province,
+                'municipality' => $user->municipality,
+                'barangay' => $user->barangay,
+                'status' => $user->status,
                 'profile' => $user->profile ?? '',
             ]
         ], 200);

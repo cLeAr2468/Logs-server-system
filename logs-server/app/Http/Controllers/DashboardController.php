@@ -180,6 +180,38 @@ class DashboardController extends Controller
             ->avg('rating') ?? 0;
         $feedbackCount = Feedback::whereBetween('created_at', [$startDate . ' 00:00:00', $endDate . ' 23:59:59'])
             ->count();
+        
+        // Transaction counts by purpose (service) with percentages
+        $transactionsByPurpose = Transaction::join('purposes', 'transactions.purpose_id', '=', 'purposes.id')
+            ->whereBetween('transactions.created_at', [$startDate . ' 00:00:00', $endDate . ' 23:59:59'])
+            ->select('purposes.name as purpose_name', 'purposes.id as purpose_id', DB::raw('count(*) as count'))
+            ->groupBy('purposes.id', 'purposes.name')
+            ->orderBy('count', 'desc')
+            ->get()
+            ->map(function ($item) use ($totalTransactions) {
+                $item->percentage = $totalTransactions > 0 ? round(($item->count / $totalTransactions) * 100, 2) : 0;
+                return $item;
+            });
+        
+        // Transaction counts by status
+        $transactionsByStatus = Transaction::whereBetween('created_at', [$startDate . ' 00:00:00', $endDate . ' 23:59:59'])
+            ->select('status', DB::raw('count(*) as count'))
+            ->groupBy('status')
+            ->get()
+            ->map(function ($item) use ($totalTransactions) {
+                $item->percentage = $totalTransactions > 0 ? round(($item->count / $totalTransactions) * 100, 2) : 0;
+                return $item;
+            });
+        
+        // Transaction counts by request type (walk-in vs online)
+        $transactionsByType = Transaction::whereBetween('created_at', [$startDate . ' 00:00:00', $endDate . ' 23:59:59'])
+            ->select('request_type', DB::raw('count(*) as count'))
+            ->groupBy('request_type')
+            ->get()
+            ->map(function ($item) use ($totalTransactions) {
+                $item->percentage = $totalTransactions > 0 ? round(($item->count / $totalTransactions) * 100, 2) : 0;
+                return $item;
+            });
 
         return response()->json([
             'statistics' => [
@@ -192,6 +224,9 @@ class DashboardController extends Controller
                 'completion_rate' => $completionRate,
                 'feedback_score' => round($avgRating, 1),
                 'feedback_count' => $feedbackCount,
+                'transactions_by_purpose' => $transactionsByPurpose,
+                'transactions_by_status' => $transactionsByStatus,
+                'transactions_by_type' => $transactionsByType,
             ]
         ]);
     }
@@ -241,23 +276,18 @@ class DashboardController extends Controller
         $startDate = $request->input('start_date');
         $endDate = $request->input('end_date');
 
-        $query = Transaction::select('purpose', DB::raw('count(*) as value'))
-            ->groupBy('purpose')
+        $query = Transaction::join('purposes', 'transactions.purpose_id', '=', 'purposes.id')
+            ->select('purposes.name as label', DB::raw('count(*) as value'))
+            ->groupBy('purposes.id', 'purposes.name')
             ->orderBy('value', 'desc')
             ->limit(5);
 
         // Filter by date range if provided
         if ($startDate && $endDate) {
-            $query->whereBetween('created_at', [$startDate . ' 00:00:00', $endDate . ' 23:59:59']);
+            $query->whereBetween('transactions.created_at', [$startDate . ' 00:00:00', $endDate . ' 23:59:59']);
         }
 
-        $performanceData = $query->get()
-            ->map(function ($item) {
-                return [
-                    'label' => $item->purpose,
-                    'value' => $item->value,
-                ];
-            });
+        $performanceData = $query->get();
 
         return response()->json([
             'performance' => $performanceData

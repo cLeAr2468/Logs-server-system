@@ -10,19 +10,21 @@ class Transaction extends Model
     use HasFactory;
 
     protected $fillable = [
-        'user_id',
-        'purpose',
-        'street_house_no',
-        'brgy',
-        'municipality',
-        'province',
+        'student_id',
+        'date_requested',
+        'request_type',
+        'purpose_id',
         'schedule_date',
+        'release_date',
         'time_slot',
         'status',
+        'rejection_reason',
     ];
 
     protected $casts = [
+        'date_requested' => 'datetime',
         'schedule_date' => 'date',
+        'release_date' => 'date',
     ];
 
     /**
@@ -30,7 +32,44 @@ class Transaction extends Model
      */
     public function user()
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsTo(User::class, 'student_id', 'student_id');
+    }
+
+    /**
+     * Get the purpose for this transaction (Pure Relationship)
+     */
+    public function purpose()
+    {
+        return $this->belongsTo(Purpose::class, 'purpose_id', 'id');
+    }
+
+    /**
+     * Accessors for address fields from user relationship
+     * These provide backward compatibility for existing code
+     */
+    public function getRegionAttribute()
+    {
+        return $this->user?->region;
+    }
+
+    public function getProvinceAttribute()
+    {
+        return $this->user?->province;
+    }
+
+    public function getMunicipalityAttribute()
+    {
+        return $this->user?->municipality;
+    }
+
+    public function getBarangayAttribute()
+    {
+        return $this->user?->barangay;
+    }
+
+    public function getBrgyAttribute()
+    {
+        return $this->user?->barangay; // Alias for barangay
     }
 
     /**

@@ -128,8 +128,8 @@ class PurposeController extends Controller
             ], 404);
         }
 
-        // Check if purpose is being used in transactions
-        $transactionCount = \App\Models\Transaction::where('purpose', $purpose->name)->count();
+        // Check if purpose is being used in transactions (Pure Relationship)
+        $transactionCount = \App\Models\Transaction::where('purpose_id', $id)->count();
         
         if ($transactionCount > 0) {
             return response()->json([

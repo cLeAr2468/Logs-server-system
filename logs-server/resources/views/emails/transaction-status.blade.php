@@ -131,6 +131,14 @@
                     </p>
                 </div>
                 <p>We regret to inform you that your appointment request has been <strong style="color: #dc3545;">REJECTED</strong>.</p>
+                
+                @if($rejectionReason)
+                    <div style="background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0; border-radius: 4px;">
+                        <p style="margin: 0 0 8px 0; font-weight: 600; color: #856404;">Reason for Rejection:</p>
+                        <p style="margin: 0; color: #856404;">{{ $rejectionReason }}</p>
+                    </div>
+                @endif
+                
                 <p>If you have any questions or would like to reschedule, please contact the Student Affairs and Services office.</p>
             @elseif($status === 'completed')
                 <div class="message-box success">

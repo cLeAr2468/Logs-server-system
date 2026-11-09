@@ -14,13 +14,19 @@ return new class extends Migration
         Schema::create('users', function (Blueprint $table) {
             $table->id();
             $table->string('student_id')->unique();
-            $table->string('fname');
-            $table->string('mname')->nullable();
-            $table->string('lname');
-            $table->string('email')->unique();
-            $table->string('course');
+            
+            // Masterlist relationship - foreign key will be added in a separate migration
+            // after masterlist table is created
+            $table->unsignedBigInteger('masterlist_id')->nullable();
+            
+            // Address fields (encrypted via model casting)
+            $table->string('suffix')->nullable(); // Jr., Sr., II, III, etc.
+            $table->text('region')->nullable();
+            $table->text('province')->nullable();
+            $table->text('municipality')->nullable();
+            $table->text('barangay')->nullable();
+            
             $table->string('status');
-            $table->string('year_level');
             $table->timestamp('email_verified_at')->nullable();
             $table->string('password');
             $table->rememberToken();

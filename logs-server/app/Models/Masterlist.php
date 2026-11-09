@@ -40,7 +40,20 @@ class Masterlist extends Model
     protected $casts = [
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
+        // Encrypt sensitive fields
+        'fname' => 'encrypted',
+        'mname' => 'encrypted',
+        'lname' => 'encrypted',
+        'email' => 'encrypted',
     ];
+
+    /**
+     * Get the user associated with this masterlist entry
+     */
+    public function user()
+    {
+        return $this->hasOne(User::class, 'student_id', 'student_id');
+    }
 
     /**
      * The attributes that should be hidden for serialization.
@@ -49,3 +62,4 @@ class Masterlist extends Model
      */
     protected $hidden = [];
 }
+

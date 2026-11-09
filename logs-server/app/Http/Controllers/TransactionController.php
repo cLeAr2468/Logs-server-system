@@ -12,11 +12,30 @@ use Illuminate\Support\Facades\Mail;
 class TransactionController extends Controller
 {
     /**
-     * Get all transactions (admin)
+     * Get all transactions (admin) - Pure Relationship with sorting
      */
-    public function index()
+    public function index(Request $request)
     {
-        $transactions = Transaction::with('user')->latest()->get();
+        $query = Transaction::with(['user.masterlist', 'purpose']);
+        
+        // Sorting
+        $sortBy = $request->input('sort_by', 'created_at');
+        $sortOrder = $request->input('sort_order', 'desc');
+        
+        if ($sortBy === 'status') {
+            $query->orderBy('status', $sortOrder);
+        } elseif ($sortBy === 'date') {
+            $query->orderBy('schedule_date', $sortOrder);
+        } else {
+            $query->orderBy('created_at', $sortOrder);
+        }
+        
+        // Add secondary sort by date
+        if ($sortBy !== 'created_at' && $sortBy !== 'date') {
+            $query->orderBy('schedule_date', 'desc');
+        }
+        
+        $transactions = $query->latest()->get();
 
         return response()->json([
             'message' => 'Transactions retrieved successfully',
@@ -25,11 +44,30 @@ class TransactionController extends Controller
     }
 
     /**
+     * Display the specified transaction - Pure Relationship
+     */
+    public function show($id)
+    {
+        $transaction = Transaction::with(['user.masterlist', 'purpose'])->find($id);
+
+        if (!$transaction) {
+            return response()->json([
+                'message' => 'Transaction not found'
+            ], 404);
+        }
+
+        return response()->json([
+            'message' => 'Transaction retrieved successfully',
+            'transaction' => $transaction
+        ], 200);
+    }
+
+    /**
      * Get authenticated user's transactions
      */
     public function getUserTransactions(Request $request)
     {
-        $transactions = Transaction::where('user_id', $request->user()->id)
+        $transactions = Transaction::where('student_id', $request->user()->id)
             ->latest()
             ->get();
 
@@ -44,14 +82,12 @@ class TransactionController extends Controller
      * Hybrid Approach:
      * - Max 5 UNIQUE USERS per time slot
      * - Max 3 TRANSACTIONS per user per time slot
+     * Address info is now stored in users table only (no redundancy)
      */
     public function store(Request $request)
     {
         $request->validate([
-            'purpose' => 'required|string',
-            'barangay' => 'required|string',
-            'city' => 'required|string',
-            'province' => 'required|string',
+            'purpose_id' => 'required|exists:purposes,id',
             'schedule_date' => 'required|date|after_or_equal:today',
             'time_slot' => 'required|string',
         ]);
@@ -64,19 +100,27 @@ class TransactionController extends Controller
         $scheduleDate = $request->schedule_date;
         $timeSlot = $request->time_slot;
 
+        // Validate user has complete address information
+        $user = $request->user();
+        if (!$user->region || !$user->province || !$user->municipality || !$user->barangay) {
+            return response()->json([
+                'message' => 'Please complete your address information in your profile before creating a transaction.'
+            ], 400);
+        }
+
         // Check 1: Count unique users in this slot (only pending/approved)
         $uniqueUserCount = Transaction::whereRaw('DATE(schedule_date) = ?', [$scheduleDate])
             ->where('time_slot', $timeSlot)
             ->whereIn('status', ['pending', 'approved'])
-            ->distinct('user_id')
-            ->count('user_id');
+            ->distinct('student_id')
+            ->count('student_id');
 
         \Log::info("Unique user count for {$scheduleDate} {$timeSlot}: {$uniqueUserCount}/{$maxUsersPerSlot}");
 
         // Check 2: Count current user's transactions in this specific slot
         $userTransactionCount = Transaction::whereRaw('DATE(schedule_date) = ?', [$scheduleDate])
             ->where('time_slot', $timeSlot)
-            ->where('user_id', $userId)
+            ->where('student_id', $userId)
             ->whereIn('status', ['pending', 'approved'])
             ->count();
 
@@ -105,32 +149,34 @@ class TransactionController extends Controller
             ], 409);
         }
 
-        // Check if user already has a pending or approved appointment with the same purpose
-        $existingPurposeAppointment = Transaction::where('user_id', $userId)
-            ->where('purpose', $request->purpose)
+        // Check if user already has a pending or approved appointment with the same purpose (Pure Relationship)
+        $existingPurposeAppointment = Transaction::where('student_id', $userId)
+            ->where('purpose_id', $request->purpose_id)
             ->whereIn('status', ['pending', 'approved'])
             ->first();
 
         if ($existingPurposeAppointment) {
+            $purpose = \App\Models\Purpose::find($request->purpose_id);
             return response()->json([
-                'message' => 'You already have a pending or approved appointment for "' . $request->purpose . '". Please wait for it to be completed or cancelled before creating a new one with the same purpose.'
+                'message' => 'You already have a pending or approved appointment for "' . ($purpose->name ?? 'this service') . '". Please wait for it to be completed or cancelled before creating a new one with the same purpose.'
             ], 409);
         }
 
-        // Create transaction
+        // Create transaction (Pure Relationship - uses purpose_id)
+        // Request type is 'online' when created by user
+        // date_requested is automatically set to current timestamp
         $transaction = Transaction::create([
-            'user_id' => $userId,
-            'purpose' => $request->purpose,
-            'brgy' => $request->barangay,
-            'municipality' => $request->city,
-            'province' => $request->province,
+            'student_id' => $userId,
+            'date_requested' => now(),
+            'request_type' => 'online',
+            'purpose_id' => $request->purpose_id,
             'schedule_date' => $scheduleDate,
             'time_slot' => $timeSlot,
             'status' => 'pending',
         ]);
 
-        // Load the user relationship
-        $transaction->load('user');
+        // Load the user, masterlist, and purpose relationships
+        $transaction->load(['user.masterlist', 'purpose']);
 
         \Log::info("Transaction created successfully. New counts - Unique users: " . ($uniqueUserCount + ($userHasBookingInSlot ? 0 : 1)) . ", User transactions: " . ($userTransactionCount + 1));
 
@@ -147,41 +193,19 @@ class TransactionController extends Controller
     }
 
     /**
-     * Get a single transaction
-     */
-    public function show($id)
-    {
-        $transaction = Transaction::with('user')->find($id);
-
-        if (!$transaction) {
-            return response()->json([
-                'message' => 'Transaction not found'
-            ], 404);
-        }
-
-        return response()->json([
-            'message' => 'Transaction retrieved successfully',
-            'transaction' => $transaction
-        ], 200);
-    }
-
-    /**
      * Update user's own appointment
      */
     public function update(Request $request, $id)
     {
         $request->validate([
-            'purpose' => 'sometimes|required|string',
-            'brgy' => 'sometimes|required|string',
-            'municipality' => 'sometimes|required|string',
-            'province' => 'sometimes|required|string',
+            'purpose_id' => 'sometimes|required|exists:purposes,id',
             'schedule_date' => 'sometimes|required|date|after_or_equal:today',
             'time_slot' => 'sometimes|required|string',
         ]);
 
         // Find transaction
         $transaction = Transaction::where('id', $id)
-            ->where('user_id', $request->user()->id)
+            ->where('student_id', $request->user()->id)
             ->first();
 
         if (!$transaction) {
@@ -197,20 +221,21 @@ class TransactionController extends Controller
             ], 400);
         }
 
-        // Check if purpose changed
-        $purposeChanged = $request->has('purpose') && $request->purpose !== $transaction->purpose;
+        // Check if purpose changed (Pure Relationship)
+        $purposeChanged = $request->has('purpose_id') && $request->purpose_id !== $transaction->purpose_id;
 
         // If purpose changed, check for duplicate purpose
         if ($purposeChanged) {
-            $existingPurposeAppointment = Transaction::where('user_id', $request->user()->id)
-                ->where('purpose', $request->purpose)
+            $existingPurposeAppointment = Transaction::where('student_id', $request->user()->id)
+                ->where('purpose_id', $request->purpose_id)
                 ->where('id', '!=', $id) // Exclude current appointment
                 ->whereIn('status', ['pending', 'approved'])
                 ->first();
 
             if ($existingPurposeAppointment) {
+                $purpose = \App\Models\Purpose::find($request->purpose_id);
                 return response()->json([
-                    'message' => 'You already have a pending or approved appointment for "' . $request->purpose . '"'
+                    'message' => 'You already have a pending or approved appointment for "' . ($purpose->name ?? 'this service') . '"'
                 ], 409);
             }
         }
@@ -245,7 +270,7 @@ class TransactionController extends Controller
             }
             
             // Check for user's own duplicate time slot
-            $existingTimeSlot = Transaction::where('user_id', $request->user()->id)
+            $existingTimeSlot = Transaction::where('student_id', $request->user()->id)
                 ->whereRaw('DATE(schedule_date) = ?', [$newDate])
                 ->where('time_slot', $newTimeSlot)
                 ->where('id', '!=', $id) // Exclude current appointment
@@ -259,18 +284,9 @@ class TransactionController extends Controller
             }
         }
 
-        // Update transaction
-        if ($request->has('purpose')) {
-            $transaction->purpose = $request->purpose;
-        }
-        if ($request->has('brgy')) {
-            $transaction->brgy = $request->brgy;
-        }
-        if ($request->has('municipality')) {
-            $transaction->municipality = $request->municipality;
-        }
-        if ($request->has('province')) {
-            $transaction->province = $request->province;
+        // Update transaction (Pure Relationship)
+        if ($request->has('purpose_id')) {
+            $transaction->purpose_id = $request->purpose_id;
         }
         if ($request->has('schedule_date')) {
             $transaction->schedule_date = $request->schedule_date;
@@ -280,7 +296,7 @@ class TransactionController extends Controller
         }
 
         $transaction->save();
-        $transaction->load('user');
+        $transaction->load(['user.masterlist', 'purpose']);
 
         return response()->json([
             'message' => 'Appointment updated successfully',
@@ -300,10 +316,11 @@ class TransactionController extends Controller
             \Log::info('New status: ' . $request->status);
             
             $request->validate([
-                'status' => 'required|in:pending,approved,completed,cancelled,rejected'
+                'status' => 'required|in:pending,approved,completed,cancelled,rejected',
+                'rejection_reason' => 'required_if:status,rejected|nullable|string|min:10'
             ]);
 
-            $transaction = Transaction::with('user')->find($id);
+            $transaction = Transaction::with(['user.masterlist'])->find($id);
 
             if (!$transaction) {
                 return response()->json([
@@ -313,8 +330,27 @@ class TransactionController extends Controller
 
             $oldStatus = $transaction->status;
             $newStatus = $request->status;
+            $rejectionReason = $request->rejection_reason;
 
-            // Send email notification FIRST if status changes to approved, rejected, or completed
+            // Update status and rejection reason
+            $transaction->status = $newStatus;
+            
+            // Save rejection reason if status is rejected
+            if ($newStatus === 'rejected' && $rejectionReason) {
+                $transaction->rejection_reason = $rejectionReason;
+                \Log::info('Rejection reason: ' . $rejectionReason);
+            }
+            
+            // Set release_date when status becomes completed
+            if ($newStatus === 'completed' && $oldStatus !== 'completed') {
+                $transaction->release_date = now();
+                \Log::info('Release date set to: ' . $transaction->release_date);
+            }
+            
+            $transaction->save();
+            \Log::info('Transaction status updated from ' . $oldStatus . ' to ' . $newStatus);
+
+            // Send email notification AFTER saving if status changes to approved, rejected, or completed
             if (in_array($newStatus, ['approved', 'rejected', 'completed']) && $oldStatus !== $newStatus) {
                 try {
                     $user = $transaction->user;
@@ -326,34 +362,37 @@ class TransactionController extends Controller
                         ], 404);
                     }
                     
-                    $studentName = $user->fname . ' ' . $user->lname;
+                    // Get student info from masterlist
+                    $masterlist = $user->masterlist;
+                    if (!$masterlist) {
+                        return response()->json([
+                            'message' => 'Masterlist not found for this user',
+                            'error' => 'masterlist_not_found'
+                        ], 404);
+                    }
+                    
+                    $studentName = $masterlist->fname . ' ' . $masterlist->lname;
+                    $studentEmail = $masterlist->email;
 
-                    \Log::info('Sending email to: ' . $user->email);
-                    Mail::to($user->email)->send(new TransactionStatusMail($transaction, $newStatus, $studentName));
+                    \Log::info('Sending email to: ' . $studentEmail);
+                    Mail::to($studentEmail)->send(new TransactionStatusMail($transaction, $newStatus, $studentName, $rejectionReason));
                     \Log::info('Email sent successfully');
                     
                 } catch (\Exception $e) {
                     \Log::error('Failed to send transaction status email: ' . $e->getMessage());
                     
-                    return response()->json([
-                        'message' => 'Failed to send email notification. Transaction status was not changed.',
-                        'error' => 'email_send_failed',
-                        'details' => config('app.debug') ? $e->getMessage() : 'Email service temporarily unavailable'
-                    ], 500);
+                    // Log warning but don't fail the transaction update since it's already saved
+                    \Log::warning('Transaction status was updated, but email notification failed');
                 }
             }
-
-            // Update status
-            $transaction->status = $newStatus;
-            $transaction->save();
-            \Log::info('Transaction status updated from ' . $oldStatus . ' to ' . $newStatus);
 
             // Log activity
             $authUser = $request->user();
             \Log::info('Logging activity - Auth user type: ' . get_class($authUser));
             
             if ($authUser && ($authUser instanceof \App\Models\Admin || $authUser instanceof \App\Models\Staff)) {
-                $studentName = $transaction->user->fname . ' ' . $transaction->user->lname;
+                $masterlist = $transaction->user->masterlist;
+                $studentName = $masterlist ? ($masterlist->fname . ' ' . $masterlist->lname) : 'Unknown Student';
                 $logData = [
                     'user_type' => $authUser instanceof \App\Models\Admin ? 'admin' : 'staff',
                     'user_id' => $authUser instanceof \App\Models\Admin ? $authUser->admin_id : $authUser->staff_id,
@@ -395,7 +434,7 @@ class TransactionController extends Controller
     public function cancel(Request $request, $id)
     {
         $transaction = Transaction::where('id', $id)
-            ->where('user_id', $request->user()->id)
+            ->where('student_id', $request->user()->id)
             ->first();
 
         if (!$transaction) {
@@ -420,11 +459,11 @@ class TransactionController extends Controller
     }
 
     /**
-     * Delete a transaction (admin only)
+     * Delete a transaction (admin only) - Pure Relationship
      */
     public function destroy(Request $request, $id)
     {
-        $transaction = Transaction::with('user')->find($id);
+        $transaction = Transaction::with(['user.masterlist', 'purpose'])->find($id);
 
         if (!$transaction) {
             return response()->json([
@@ -432,9 +471,9 @@ class TransactionController extends Controller
             ], 404);
         }
 
-        $studentName = $transaction->user->fname . ' ' . $transaction->user->lname;
+        $studentName = $transaction->user->masterlist->fname . ' ' . $transaction->user->masterlist->lname;
         $studentId = $transaction->user->student_id;
-        $purpose = $transaction->purpose;
+        $purposeName = $transaction->purpose->name ?? 'Unknown Purpose';
 
         $transaction->delete();
 
@@ -447,7 +486,7 @@ class TransactionController extends Controller
                 'user_name' => trim($user->fname . ' ' . $user->lname),
                 'action' => 'deleted',
                 'module' => 'Transaction',
-                'description' => "Deleted transaction for student: {$studentName} ({$studentId}) - Purpose: {$purpose}",
+                'description' => "Deleted transaction for student: {$studentName} ({$studentId}) - Purpose: {$purposeName}",
                 'ip_address' => $request->ip(),
             ]);
         }
@@ -494,10 +533,10 @@ class TransactionController extends Controller
                 $cancelledAppointments[] = [
                     'id' => $appointment->id,
                     'student_id' => $appointment->user->student_id ?? 'N/A',
-                    'student_name' => ($appointment->user->fname ?? '') . ' ' . ($appointment->user->lname ?? ''),
+                    'student_name' => ($appointment->user->masterlist->fname ?? '') . ' ' . ($appointment->user->masterlist->lname ?? ''),
                     'schedule_date' => $appointment->schedule_date,
                     'time_slot' => $appointment->time_slot,
-                    'purpose' => $appointment->purpose,
+                    'purpose' => $appointment->purpose->name ?? 'N/A',
                 ];
 
                 // Log the auto-cancellation
@@ -509,8 +548,8 @@ class TransactionController extends Controller
                         'action' => 'auto_cancelled',
                         'module' => 'Transactions',
                         'description' => 'Auto-cancelled missed appointment for ' . 
-                                       ($appointment->user->fname ?? 'User') . ' ' . 
-                                       ($appointment->user->lname ?? '') . 
+                                       ($appointment->user->masterlist->fname ?? 'User') . ' ' . 
+                                       ($appointment->user->masterlist->lname ?? '') . 
                                        ' (Schedule: ' . $appointment->schedule_date . ' ' . $appointment->time_slot . ')',
                         'ip_address' => request()->ip() ?? '0.0.0.0',
                         'metadata' => json_encode([
@@ -581,7 +620,7 @@ class TransactionController extends Controller
         // Get count of UNIQUE USERS for each slot
         $slotCounts = Transaction::whereRaw('DATE(schedule_date) = ?', [$request->date])
             ->whereIn('status', ['pending', 'approved'])
-            ->select('time_slot', \DB::raw('COUNT(DISTINCT user_id) as count'))
+            ->select('time_slot', \DB::raw('COUNT(DISTINCT student_id) as count'))
             ->groupBy('time_slot')
             ->pluck('count', 'time_slot')
             ->toArray();
@@ -592,7 +631,7 @@ class TransactionController extends Controller
         $userTransactionCounts = [];
         if ($request->user_id) {
             $userTransactionCounts = Transaction::whereRaw('DATE(schedule_date) = ?', [$request->date])
-                ->where('user_id', $request->user_id)
+                ->where('student_id', $request->user_id)
                 ->whereIn('status', ['pending', 'approved'])
                 ->select('time_slot', \DB::raw('COUNT(*) as count'))
                 ->groupBy('time_slot')
@@ -694,7 +733,7 @@ class TransactionController extends Controller
             'student_id' => 'required|string'
         ]);
 
-        $user = User::where('student_id', $request->student_id)->first();
+        $user = User::with('masterlist')->where('student_id', $request->student_id)->first();
 
         if (!$user) {
             return response()->json([
@@ -709,21 +748,23 @@ class TransactionController extends Controller
             'user' => [
                 'id' => $user->id,
                 'student_id' => $user->student_id,
-                'fname' => $user->fname,
-                'mname' => $user->mname,
-                'lname' => $user->lname,
-                'email' => $user->email,
+                'fname' => $user->masterlist->fname,
+                'mname' => $user->masterlist->mname,
+                'lname' => $user->masterlist->lname,
+                'email' => $user->masterlist->email,
+                'region' => $user->region,
                 'barangay' => $user->barangay,
                 'municipality' => $user->municipality,
                 'province' => $user->province,
-                'course' => $user->course,
-                'year_level' => $user->year_level,
+                'course' => $user->masterlist->course,
+                'year_level' => $user->masterlist->year_level,
             ]
         ], 200);
     }
 
     /**
      * Create transaction by admin/staff for a user
+     * Address info is now stored in users table and accessed via relationship
      */
     public function storeByAdmin(Request $request)
     {
@@ -734,10 +775,7 @@ class TransactionController extends Controller
             
             $request->validate([
                 'student_id' => 'required|string|exists:users,student_id',
-                'purpose' => 'required|string',
-                'brgy' => 'required|string',
-                'municipality' => 'required|string',
-                'province' => 'required|string',
+                'purpose_id' => 'required|exists:purposes,id',
                 'schedule_date' => 'required|date|after_or_equal:today',
                 'time_slot' => 'required|string',
             ]);
@@ -763,7 +801,7 @@ class TransactionController extends Controller
             }
 
             // Find user by student_id
-            $user = User::where('student_id', $request->student_id)->first();
+            $user = User::with('masterlist')->where('student_id', $request->student_id)->first();
 
             if (!$user) {
                 return response()->json([
@@ -771,34 +809,43 @@ class TransactionController extends Controller
                 ], 404);
             }
 
-            // Check duplicate purpose
-            $existingPurposeAppointment = Transaction::where('user_id', $user->id)
-                ->where('purpose', $request->purpose)
+            // Validate user has address information
+            if (!$user->region || !$user->province || !$user->municipality || !$user->barangay) {
+                return response()->json([
+                    'message' => 'Student address information is incomplete. Please update student profile first before creating a transaction.'
+                ], 400);
+            }
+
+            // Check duplicate purpose (Pure Relationship)
+            $existingPurposeAppointment = Transaction::where('student_id', $user->student_id)
+                ->where('purpose_id', $request->purpose_id)
                 ->whereIn('status', ['pending', 'approved'])
                 ->first();
 
             if ($existingPurposeAppointment) {
+                $purpose = \App\Models\Purpose::find($request->purpose_id);
                 return response()->json([
-                    'message' => 'This student already has a pending or approved appointment for "' . $request->purpose . '". Please wait for it to be completed or cancelled before creating a new one with the same purpose.'
+                    'message' => 'This student already has a pending or approved appointment for "' . ($purpose->name ?? 'this service') . '". Please wait for it to be completed or cancelled before creating a new one with the same purpose.'
                 ], 409);
             }
 
-            // Create transaction
+            // Create transaction (pure relationship - uses student_id and purpose_id)
+            // Request type is 'walkin' when created by admin/staff
+            // date_requested is automatically set to current timestamp
             \Log::info('Creating transaction...');
             $transaction = Transaction::create([
-                'user_id' => $user->id,
-                'purpose' => $request->purpose,
-                'brgy' => $request->brgy,
-                'municipality' => $request->municipality,
-                'province' => $request->province,
+                'student_id' => $user->student_id,
+                'date_requested' => now(),
+                'request_type' => 'walkin',
+                'purpose_id' => $request->purpose_id,
                 'schedule_date' => $request->schedule_date,
                 'time_slot' => $request->time_slot,
                 'status' => 'approved',
             ]);
             \Log::info('Transaction created with ID: ' . $transaction->id);
 
-            // Load user relationship
-            $transaction->load('user');
+            // Load user, masterlist, and purpose relationships
+            $transaction->load(['user.masterlist', 'purpose']);
 
             // Log activity
             $authUser = $request->user();
@@ -807,7 +854,7 @@ class TransactionController extends Controller
             \Log::info('Is Staff? ' . ($authUser instanceof \App\Models\Staff ? 'YES' : 'NO'));
             
             if ($authUser && ($authUser instanceof \App\Models\Admin || $authUser instanceof \App\Models\Staff)) {
-                $studentName = $user->fname . ' ' . $user->lname;
+                $studentName = $user->masterlist->fname . ' ' . $user->masterlist->lname;
                 $logData = [
                     'user_type' => $authUser instanceof \App\Models\Admin ? 'admin' : 'staff',
                     'user_id' => $authUser instanceof \App\Models\Admin ? $authUser->admin_id : $authUser->staff_id,

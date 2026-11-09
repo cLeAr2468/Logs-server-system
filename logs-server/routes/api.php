@@ -24,6 +24,14 @@ Route::get('/health', function () {
     ]);
 });
 
+Route::get('/test-cors', function () {
+    return response()->json([
+        'message' => 'CORS is working!',
+        'origin' => request()->header('Origin'),
+        'method' => request()->method(),
+    ]);
+});
+
 Route::get('/test', function () {
     return response()->json([
         'message' => 'API working'
