@@ -12,10 +12,9 @@ class Feedback extends Model
     protected $table = 'feedback';
 
     protected $fillable = [
-        'user_id',
+        'student_id',
         'transaction_id',
-        'transaction_purpose',
-        'transaction_date',
+        'purpose_id',
         'rating',
         'message',
     ];
@@ -31,7 +30,7 @@ class Feedback extends Model
      */
     public function user()
     {
-        return $this->belongsTo(User::class, 'user_id', 'id');
+        return $this->belongsTo(User::class, 'student_id', 'student_id');
     }
 
     /**
@@ -40,6 +39,14 @@ class Feedback extends Model
     public function transaction()
     {
         return $this->belongsTo(Transaction::class, 'transaction_id', 'id');
+    }
+
+    /**
+     * Get the purpose relationship
+     */
+    public function purpose()
+    {
+        return $this->belongsTo(Purpose::class, 'purpose_id', 'id');
     }
     
     /**
@@ -52,9 +59,9 @@ class Feedback extends Model
         if ($this->transaction) {
             return [
                 'id' => $this->transaction->id,
-                'purpose' => $this->transaction->purpose ? $this->transaction->purpose->name : $this->transaction_purpose,
-                'schedule_date' => $this->transaction->schedule_date,
-                'time_slot' => $this->transaction->time_slot,
+                'purpose' => $this->purpose ? $this->purpose->name : null,
+                'appointment_date' => $this->transaction->appointment_date,
+                'appointment_time' => $this->transaction->appointment_time,
                 'status' => $this->transaction->status,
             ];
         }

@@ -10,17 +10,32 @@ use Illuminate\Support\Facades\Storage;
 class AnnouncementController extends Controller
 {
     /**
-     * Get all announcements (with filters)
+     * Get all announcements (with filters) - excludes archived
      */
     public function index(Request $request)
     {
         $query = Announcement::with('staff:id,staff_id,fname,mname,lname,email')
+            ->where('status', '!=', 'archive')
             ->orderBy('created_at', 'desc');
 
         // Filter by status
         if ($request->has('status')) {
             $query->where('status', $request->status);
         }
+
+        $announcements = $query->paginate(10);
+
+        return response()->json($announcements);
+    }
+
+    /**
+     * Get archived announcements (delete history)
+     */
+    public function getArchived(Request $request)
+    {
+        $query = Announcement::with('staff:id,staff_id,fname,mname,lname,email')
+            ->where('status', 'archive')
+            ->orderBy('updated_at', 'desc');
 
         $announcements = $query->paginate(10);
 
@@ -270,7 +285,7 @@ class AnnouncementController extends Controller
     }
 
     /**
-     * Delete announcement
+     * Archive announcement (soft delete)
      */
     public function destroy(Request $request, $id)
     {
@@ -281,12 +296,9 @@ class AnnouncementController extends Controller
             $announcement = Announcement::findOrFail($id);
             $title = $announcement->title;
 
-            // Delete image if exists
-            if ($announcement->cover_image) {
-                Storage::disk('public')->delete($announcement->cover_image);
-            }
-
-            $announcement->delete();
+            // Change status to archive instead of hard delete
+            $announcement->status = 'archive';
+            $announcement->save();
 
             // Log activity (wrapped in try-catch to prevent logging errors from failing the operation)
             $user = $request->user();
@@ -295,21 +307,22 @@ class AnnouncementController extends Controller
                     'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
                     'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
                     'user_name' => trim($user->fname . ' ' . $user->lname),
-                    'action' => 'deleted',
+                    'action' => 'archived',
                     'module' => 'Announcement',
-                    'description' => 'Deleted announcement: ' . $title,
+                    'description' => 'Archived announcement: ' . $title,
                     'ip_address' => $request->ip(),
                 ]);
             } catch (\Exception $logError) {
                 // Silently fail activity logging - don't break the operation
-                \Log::error('Activity log failed during announcement deletion: ' . $logError->getMessage());
+                \Log::error('Activity log failed during announcement archival: ' . $logError->getMessage());
             }
 
             // Commit transaction
             \DB::commit();
 
             return response()->json([
-                'message' => 'Announcement deleted successfully'
+                'success' => true,
+                'message' => 'Announcement archived successfully'
             ]);
         } catch (\Exception $e) {
             // Rollback on any exception
@@ -317,7 +330,66 @@ class AnnouncementController extends Controller
             
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to delete announcement',
+                'message' => 'Failed to archive announcement',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Restore archived announcement
+     */
+    public function restore(Request $request, $id)
+    {
+        // Start transaction
+        \DB::beginTransaction();
+        
+        try {
+            $announcement = Announcement::findOrFail($id);
+            
+            if ($announcement->status !== 'archive') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'This announcement is not archived',
+                ], 400);
+            }
+
+            $title = $announcement->title;
+
+            // Restore to draft status
+            $announcement->status = 'draft';
+            $announcement->save();
+
+            // Log activity
+            $user = $request->user();
+            try {
+                ActivityLog::create([
+                    'user_type' => $user instanceof \App\Models\Admin ? 'admin' : 'staff',
+                    'user_id' => $user instanceof \App\Models\Admin ? $user->admin_id : $user->staff_id,
+                    'user_name' => trim($user->fname . ' ' . $user->lname),
+                    'action' => 'restored',
+                    'module' => 'Announcement',
+                    'description' => 'Restored announcement: ' . $title,
+                    'ip_address' => $request->ip(),
+                ]);
+            } catch (\Exception $logError) {
+                \Log::error('Activity log failed during announcement restoration: ' . $logError->getMessage());
+            }
+
+            // Commit transaction
+            \DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Announcement restored successfully'
+            ]);
+        } catch (\Exception $e) {
+            // Rollback on any exception
+            \DB::rollBack();
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to restore announcement',
                 'error' => $e->getMessage(),
             ], 500);
         }

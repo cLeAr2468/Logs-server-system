@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Validator;
 class UserController extends Controller
 {
     /**
-     * Get all users (clients)
+     * Get all users (clients) - Pure Relationship
      * 
      * @return \Illuminate\Http\JsonResponse
      */
@@ -21,11 +21,11 @@ class UserController extends Controller
             // Eager load masterlist relationship
             $users = User::with('masterlist')->orderBy('created_at', 'desc')->get();
 
-            // Transform data to include masterlist fields
+            // Transform data to include masterlist fields (Pure Relationship)
             $usersData = $users->map(function($user) {
                 return [
-                    'id' => $user->id,
-                    'student_id' => $user->student_id,
+                    'id' => $user->id, // This might be null since student_id is the primary key
+                    'student_id' => $user->student_id, // Use this as the main identifier
                     'fname' => $user->masterlist->fname ?? '',
                     'mname' => $user->masterlist->mname ?? '',
                     'lname' => $user->masterlist->lname ?? '',
@@ -37,6 +37,7 @@ class UserController extends Controller
                     'province' => $user->province,
                     'municipality' => $user->municipality,
                     'barangay' => $user->barangay,
+                    'purok' => $user->purok,
                     'status' => $user->status,
                     'created_at' => $user->created_at,
                     'updated_at' => $user->updated_at,
@@ -58,7 +59,7 @@ class UserController extends Controller
     }
 
     /**
-     * Create a new user (client account) - Admin/Staff only
+     * Create a new user (client account) - Admin/Staff only - Pure Relationship
      * 
      * @param \Illuminate\Http\Request $request
      * @return \Illuminate\Http\JsonResponse
@@ -74,6 +75,7 @@ class UserController extends Controller
                 'province' => 'required|string|max:255',
                 'municipality' => 'required|string|max:255',
                 'barangay' => 'required|string|max:255',
+                'purok' => 'nullable|string|max:255',
                 'password' => 'required|string|min:6',
             ]);
 
@@ -85,7 +87,7 @@ class UserController extends Controller
                 ], 422);
             }
 
-            // Check if student_id exists in masterlist
+            // Check if student_id exists in masterlist (Pure Relationship)
             $masterlistEntry = \App\Models\Masterlist::where('student_id', $request->student_id)->first();
             
             if (!$masterlistEntry) {
@@ -111,15 +113,15 @@ class UserController extends Controller
                 ], 422);
             }
 
-            // Create user account with masterlist relationship
+            // Create user account (Pure Relationship - no duplicate data)
             $user = User::create([
                 'student_id' => $request->student_id,
-                'masterlist_id' => $masterlistEntry->id,
                 'suffix' => $request->suffix,
                 'region' => $request->region,
                 'province' => $request->province,
                 'municipality' => $request->municipality,
                 'barangay' => $request->barangay,
+                'purok' => $request->purok,
                 'status' => 'Active',
                 'password' => Hash::make($request->password),
             ]);
@@ -141,7 +143,6 @@ class UserController extends Controller
                         'ip_address' => $request->ip(),
                     ]);
                 } catch (\Exception $logError) {
-                    // Silently fail activity logging - don't break the user creation
                     \Log::error('Activity log failed during user creation: ' . $logError->getMessage());
                 }
             }
@@ -163,6 +164,7 @@ class UserController extends Controller
                     'province' => $user->province,
                     'municipality' => $user->municipality,
                     'barangay' => $user->barangay,
+                    'purok' => $user->purok,
                 ],
             ], 201);
         } catch (\Exception $e) {
@@ -175,15 +177,16 @@ class UserController extends Controller
     }
 
     /**
-     * Get a single user
+     * Get a single user - Pure Relationship (Using student_id)
      * 
-     * @param int $id
+     * @param string $id (student_id)
      * @return \Illuminate\Http\JsonResponse
      */
     public function show($id)
     {
         try {
-            $user = User::with('masterlist')->findOrFail($id);
+            // Find user by student_id (primary key)
+            $user = User::with('masterlist')->where('student_id', $id)->firstOrFail();
 
             return response()->json([
                 'success' => true,
@@ -201,6 +204,7 @@ class UserController extends Controller
                     'province' => $user->province,
                     'municipality' => $user->municipality,
                     'barangay' => $user->barangay,
+                    'purok' => $user->purok,
                     'status' => $user->status,
                 ],
             ], 200);
@@ -216,17 +220,17 @@ class UserController extends Controller
      * Update a user
      * 
      * @param \Illuminate\Http\Request $request
-     * @param int $id
+     * @param string $id (student_id)
      * @return \Illuminate\Http\JsonResponse
      */
     public function update(Request $request, $id)
     {
         try {
-            $user = User::findOrFail($id);
+            $user = User::where('student_id', $id)->firstOrFail();
 
             // Validate the request
             $validator = Validator::make($request->all(), [
-                'student_id' => 'sometimes|required|string|unique:users,student_id,' . $id,
+                'student_id' => 'sometimes|required|string|unique:users,student_id,' . $user->student_id . ',student_id',
                 'fname' => 'sometimes|required|string|max:255',
                 'mname' => 'nullable|string|max:255',
                 'lname' => 'sometimes|required|string|max:255',
@@ -281,13 +285,13 @@ class UserController extends Controller
     /**
      * Delete a user
      * 
-     * @param int $id
+     * @param string $id (student_id)
      * @return \Illuminate\Http\JsonResponse
      */
     public function destroy($id)
     {
         try {
-            $user = User::findOrFail($id);
+            $user = User::where('student_id', $id)->firstOrFail();
             $user->delete();
 
             return response()->json([
@@ -326,6 +330,136 @@ class UserController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to fetch statistics',
+            ], 500);
+        }
+    }
+
+    /**
+     * Update user status (Active/Inactive)
+     * 
+     * @param \Illuminate\Http\Request $request
+     * @param string $id (student_id)
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function updateStatus(Request $request, $id)
+    {
+        try {
+            $user = User::with('masterlist')->where('student_id', $id)->firstOrFail();
+
+            $validator = Validator::make($request->all(), [
+                'status' => 'required|in:Active,Inactive',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Validation failed',
+                    'errors' => $validator->errors(),
+                ], 422);
+            }
+
+            $oldStatus = $user->status;
+            $user->status = $request->status;
+            $user->save();
+
+            // Log activity
+            $authUser = $request->user();
+            if ($authUser) {
+                try {
+                    ActivityLog::create([
+                        'user_type' => $authUser instanceof \App\Models\Admin ? 'admin' : 'staff',
+                        'user_id' => $authUser instanceof \App\Models\Admin ? $authUser->admin_id : $authUser->staff_id,
+                        'user_name' => trim($authUser->fname . ' ' . $authUser->lname),
+                        'action' => 'updated',
+                        'module' => 'Users',
+                        'description' => 'Changed status of ' . ($user->masterlist->fname ?? '') . ' ' . ($user->masterlist->lname ?? '') . ' (' . $user->student_id . ') from ' . $oldStatus . ' to ' . $request->status,
+                        'ip_address' => $request->ip(),
+                    ]);
+                } catch (\Exception $logError) {
+                    \Log::error('Activity log failed: ' . $logError->getMessage());
+                }
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'User status updated successfully!',
+                'user' => $user,
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to update status',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Get transaction statistics for a user - Pure Relationship
+     * 
+     * @param string $id (student_id)
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function transactionStatistics($id)
+    {
+        try {
+            $user = User::where('student_id', $id)->firstOrFail();
+            
+            // Use student_id for pure relationship with transactions table
+            $total = \App\Models\Transaction::where('student_id', $user->student_id)->count();
+            $pending = \App\Models\Transaction::where('student_id', $user->student_id)->where('status', 'pending')->count();
+            $approved = \App\Models\Transaction::where('student_id', $user->student_id)->where('status', 'approved')->count();
+            $completed = \App\Models\Transaction::where('student_id', $user->student_id)->where('status', 'completed')->count();
+            $cancelled = \App\Models\Transaction::where('student_id', $user->student_id)->where('status', 'cancelled')->count();
+            $rejected = \App\Models\Transaction::where('student_id', $user->student_id)->where('status', 'rejected')->count();
+
+            return response()->json([
+                'success' => true,
+                'statistics' => [
+                    'total' => $total,
+                    'pending' => $pending,
+                    'approved' => $approved,
+                    'completed' => $completed,
+                    'cancelled' => $cancelled,
+                    'rejected' => $rejected,
+                ],
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to fetch transaction statistics',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Get all transactions for a user - Pure Relationship
+     * 
+     * @param string $id (student_id)
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function userTransactions($id)
+    {
+        try {
+            $user = User::where('student_id', $id)->firstOrFail();
+            
+            // Fetch transactions with purpose relationship
+            $transactions = \App\Models\Transaction::with('purpose')
+                ->where('student_id', $user->student_id)
+                ->orderBy('created_at', 'desc')
+                ->get();
+
+            return response()->json([
+                'success' => true,
+                'transactions' => $transactions,
+                'total' => $transactions->count(),
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to fetch transactions',
+                'error' => $e->getMessage(),
             ], 500);
         }
     }

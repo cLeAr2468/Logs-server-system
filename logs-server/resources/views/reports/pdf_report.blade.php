@@ -291,23 +291,40 @@
                 <th>Purpose</th>
                 <th>Schedule</th>
                 <th>Status</th>
+                <th>Updated</th>
             </tr>
         </thead>
         <tbody>
             @foreach($transactions as $transaction)
+            @php
+                // Get student name from user->masterlist relationship with middle name hiding
+                $fname = $transaction->user->masterlist->fname ?? '';
+                $mname = $transaction->user->masterlist->mname ?? '';
+                $lname = $transaction->user->masterlist->lname ?? '';
+                
+                // Hide middle name if it's NA variations (NA, N.A, N A, etc.)
+                $hideMiddle = empty($mname) || preg_match('/^N\.?\s*A\.?$/i', trim($mname));
+                $studentName = $hideMiddle ? trim("{$fname} {$lname}") : trim("{$fname} {$mname} {$lname}");
+                $studentName = $studentName ?: 'N/A';
+                
+                $course = $transaction->user->masterlist->course ?? 'N/A';
+                $yearLevel = $transaction->user->masterlist->year_level ?? 'N/A';
+                $purposeName = $transaction->purpose->name ?? 'N/A';
+            @endphp
             <tr>
                 <td>{{ date('Y-m-d', strtotime($transaction->created_at)) }}</td>
                 <td>{{ $transaction->user->student_id ?? 'N/A' }}</td>
-                <td>{{ trim(($transaction->user->fname ?? '') . ' ' . ($transaction->user->lname ?? '')) ?: 'N/A' }}</td>
-                <td>{{ $transaction->user->course ?? 'N/A' }}</td>
-                <td>{{ $transaction->user->year_level ?? 'N/A' }}</td>
-                <td>{{ $transaction->purpose }}</td>
+                <td>{{ $studentName }}</td>
+                <td>{{ $course }}</td>
+                <td>{{ $yearLevel }}</td>
+                <td>{{ $purposeName }}</td>
                 <td>{{ $transaction->schedule_date ?? 'N/A' }}</td>
                 <td>
                     <span class="status-badge status-{{ $transaction->status }}">
                         {{ ucfirst($transaction->status) }}
                     </span>
                 </td>
+                <td>{{ date('M d, H:i', strtotime($transaction->updated_at)) }}</td>
             </tr>
             @endforeach
         </tbody>
@@ -367,10 +384,23 @@
         </thead>
         <tbody>
             @foreach($feedbackData['feedback_details'] as $feedback)
+            @php
+                // Get student name from user->masterlist relationship with middle name hiding
+                $fname = $feedback->user->masterlist->fname ?? '';
+                $mname = $feedback->user->masterlist->mname ?? '';
+                $lname = $feedback->user->masterlist->lname ?? '';
+                
+                // Hide middle name if it's NA variations (NA, N.A, N A, etc.)
+                $hideMiddle = empty($mname) || preg_match('/^N\.?\s*A\.?$/i', trim($mname));
+                $studentName = $hideMiddle ? trim("{$fname} {$lname}") : trim("{$fname} {$mname} {$lname}");
+                $studentName = $studentName ?: 'N/A';
+                
+                $purposeName = $feedback->purpose->name ?? 'N/A';
+            @endphp
             <tr>
-                <td>{{ trim(($feedback->user->fname ?? '') . ' ' . ($feedback->user->mname ?? '') . ' ' . ($feedback->user->lname ?? '')) ?: 'N/A' }}</td>
+                <td>{{ $studentName }}</td>
                 <td>{{ $feedback->user->student_id ?? 'N/A' }}</td>
-                <td>{{ $feedback->transaction_purpose ?? 'N/A' }}</td>
+                <td>{{ $purposeName }}</td>
                 <td>{{ date('M d, Y', strtotime($feedback->transaction_date ?? $feedback->created_at)) }}</td>
                 <td style="text-align: center;">{{ $feedback->rating }}/5</td>
                 <td>{{ $feedback->message ?: 'No comment provided' }}</td>

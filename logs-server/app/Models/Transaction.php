@@ -16,6 +16,9 @@ class Transaction extends Model
         'purpose_id',
         'schedule_date',
         'release_date',
+        'approved_at',
+        'rejected_at',
+        'cancelled_at',
         'time_slot',
         'status',
         'rejection_reason',
@@ -25,6 +28,9 @@ class Transaction extends Model
         'date_requested' => 'datetime',
         'schedule_date' => 'date',
         'release_date' => 'date',
+        'approved_at' => 'datetime',
+        'rejected_at' => 'datetime',
+        'cancelled_at' => 'datetime',
     ];
 
     /**

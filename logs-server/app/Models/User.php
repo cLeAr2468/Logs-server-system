@@ -35,6 +35,7 @@ class User extends Authenticatable
         'province',
         'municipality',
         'barangay',
+        'purok',
         'address',
         'status',
         'profile',
@@ -56,6 +57,7 @@ class User extends Authenticatable
             'province' => 'encrypted',
             'municipality' => 'encrypted',
             'barangay' => 'encrypted',
+            'purok' => 'encrypted',
         ];
     }
 
@@ -84,7 +86,12 @@ class User extends Authenticatable
 
     public function getMnameAttribute()
     {
-        return $this->masterlist?->mname;
+        $mname = $this->masterlist?->mname;
+        // Hide if NA variations
+        if ($mname && preg_match('/^N\.?A\.?$/i', trim($mname))) {
+            return null;
+        }
+        return $mname;
     }
 
     public function getLnameAttribute()

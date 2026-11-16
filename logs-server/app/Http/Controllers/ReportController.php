@@ -221,6 +221,10 @@ class ReportController extends Controller
                 'include_feedback' => $includeFeedback
             ]);
             
+            // Get filter parameters
+            $statusFilter = $request->input('status'); // e.g., 'pending', 'approved', 'completed'
+            $purposeFilter = $request->input('purpose'); // e.g., 'Apply TES', 'ID Validation'
+            
             // Build transactions query with PURE RELATIONSHIPS
             $query = Transaction::with(['user.masterlist', 'purpose']);
             
@@ -232,17 +236,23 @@ class ReportController extends Controller
                 $query->whereDate('created_at', '<=', $endDate);
             }
             
-            // Filter by purpose using PURE RELATIONSHIP (purpose_id FK)
-            if (strpos($reportType, ' Report') !== false) {
-                $purposeName = str_replace(' Report', '', $reportType);
-                // Check if this purpose exists in database
-                if (in_array($purposeName, $allPurposes)) {
-                    // Use JOIN to filter by purpose name via relationship
-                    $query->whereHas('purpose', function($q) use ($purposeName) {
-                        $q->where('name', $purposeName);
-                    });
-                }
+            // Filter by status if provided
+            if ($statusFilter && $statusFilter !== 'all') {
+                $query->where('status', $statusFilter);
+                \Log::info('Filtering by status: ' . $statusFilter);
             }
+            
+            // Filter by purpose if provided
+            if ($purposeFilter && $purposeFilter !== 'all') {
+                $query->whereHas('purpose', function($q) use ($purposeFilter) {
+                    $q->where('name', $purposeFilter);
+                });
+                \Log::info('Filtering by purpose: ' . $purposeFilter);
+            }
+            
+            // Filter by purpose using PURE RELATIONSHIP (purpose_id FK) for specific report types
+            // Remove this block since we're no longer using report type for filtering
+            // Report type is now generic "Transaction Report"
             
             $transactions = $query->orderBy('created_at', 'desc')->get();
             
@@ -339,13 +349,27 @@ class ReportController extends Controller
                 // Continue anyway - file generation succeeded
             }
             
-            // Return file for download
+            // Clear any output buffers to prevent corruption
+            if (ob_get_level() > 0) {
+                ob_end_clean();
+            }
+            
+            // Return file for download with proper binary response
             $headers = [
                 'Content-Type' => $contentType,
                 'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+                'Content-Length' => strlen($fileContent),
+                'Cache-Control' => 'must-revalidate, post-check=0, pre-check=0',
+                'Pragma' => 'public',
             ];
             
-            return response()->make($fileContent, 200, $headers);
+            \Log::info('Returning file', [
+                'filename' => $filename,
+                'content_type' => $contentType,
+                'content_length' => strlen($fileContent)
+            ]);
+            
+            return response($fileContent, 200, $headers);
             
         } catch (\Exception $e) {
             // Log the error
@@ -390,6 +414,16 @@ class ReportController extends Controller
     private function generatePDFReport($transactions, $statistics, $feedbackData, $includeSummary, $includeDetails, $includeFeedback, $reportType, $startDate, $endDate)
     {
         try {
+            \Log::info('generatePDFReport: Starting PDF generation');
+            
+            // Check if GD extension is available
+            if (!extension_loaded('gd')) {
+                \Log::error('GD extension not loaded');
+                throw new \Exception('The PHP GD extension is required, but is not installed.');
+            }
+            
+            \Log::info('GD extension check passed');
+            
             // Prepare data for the view
             $data = [
                 'reportTitle' => $reportType,
@@ -402,6 +436,8 @@ class ReportController extends Controller
                 'transactions' => $transactions,
                 'feedbackData' => $feedbackData,
             ];
+            
+            \Log::info('PDF data prepared', ['transactions_count' => $transactions->count()]);
             
             // Add intro text based on report type
             if ($reportType === 'Monthly Transaction Summary' || $reportType === 'Student Affairs Services Summary') {
@@ -492,20 +528,28 @@ class ReportController extends Controller
             $data['notedByTitle'] = 'Head, Student Affairs and Services';
             
             // Generate PDF with options to handle potential issues
+            \Log::info('About to call Pdf::loadView');
+            
             try {
                 $pdf = Pdf::loadView('reports.pdf_report', $data);
+                \Log::info('Pdf::loadView successful, setting options');
+                
                 $pdf->setPaper('letter', 'portrait');
                 $pdf->setOption('isHtml5ParserEnabled', true);
                 $pdf->setOption('isRemoteEnabled', true);
                 
+                \Log::info('PDF options set, generating output');
                 return $pdf->output();
             } catch (\Exception $pdfError) {
                 \Log::error('Dompdf Error: ' . $pdfError->getMessage());
+                \Log::error('Dompdf Stack: ' . $pdfError->getTraceAsString());
                 
                 // Try without options as fallback
+                \Log::info('Trying fallback PDF generation without options');
                 $pdf = Pdf::loadView('reports.pdf_report', $data);
                 $pdf->setPaper('letter', 'portrait');
                 
+                \Log::info('Fallback PDF output');
                 return $pdf->output();
             }
         } catch (\Exception $e) {
@@ -531,18 +575,18 @@ class ReportController extends Controller
         $row = 1;
         
         // Header
-        $sheet->mergeCells("A{$row}:I{$row}");
+        $sheet->mergeCells("A{$row}:J{$row}");
         $sheet->setCellValue("A{$row}", 'NORTHWEST SAMAR STATE UNIVERSITY');
         $sheet->getStyle("A{$row}")->getFont()->setBold(true)->setSize(14);
         $sheet->getStyle("A{$row}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
         $row++;
         
-        $sheet->mergeCells("A{$row}:I{$row}");
+        $sheet->mergeCells("A{$row}:J{$row}");
         $sheet->setCellValue("A{$row}", 'San Jorge Campus');
         $sheet->getStyle("A{$row}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
         $row++;
         
-        $sheet->mergeCells("A{$row}:I{$row}");
+        $sheet->mergeCells("A{$row}:J{$row}");
         $sheet->setCellValue("A{$row}", 'Resilience • Integrity • Service • Excellence');
         $sheet->getStyle("A{$row}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
         $row++;
@@ -550,20 +594,20 @@ class ReportController extends Controller
         $row++; // Empty row
         
         // Report Title
-        $sheet->mergeCells("A{$row}:I{$row}");
+        $sheet->mergeCells("A{$row}:J{$row}");
         $sheet->setCellValue("A{$row}", $reportType);
         $sheet->getStyle("A{$row}")->getFont()->setBold(true)->setSize(12);
         $sheet->getStyle("A{$row}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
         $row++;
         
         if ($startDate && $endDate) {
-            $sheet->mergeCells("A{$row}:I{$row}");
+            $sheet->mergeCells("A{$row}:J{$row}");
             $sheet->setCellValue("A{$row}", 'Period: ' . date('F d, Y', strtotime($startDate)) . ' to ' . date('F d, Y', strtotime($endDate)));
             $sheet->getStyle("A{$row}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
             $row++;
         }
         
-        $sheet->mergeCells("A{$row}:I{$row}");
+        $sheet->mergeCells("A{$row}:J{$row}");
         $sheet->setCellValue("A{$row}", 'Generated: ' . date('F d, Y h:i A'));
         $sheet->getStyle("A{$row}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
         $row++;
@@ -572,7 +616,7 @@ class ReportController extends Controller
         
         // Summary Section
         if ($includeSummary && $statistics) {
-            $sheet->mergeCells("A{$row}:I{$row}");
+            $sheet->mergeCells("A{$row}:J{$row}");
             $sheet->setCellValue("A{$row}", 'SUMMARY (STATUS OVERVIEW)');
             $sheet->getStyle("A{$row}")->getFont()->setBold(true);
             $sheet->getStyle("A{$row}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('15592F');
@@ -611,10 +655,10 @@ class ReportController extends Controller
 
         }
         
-        // Detailed Transactions
+        // Detailed Transactions - ORGANIZED BY STATUS AND PURPOSE, SORTED BY DATE
         if ($includeDetails && $transactions->count() > 0) {
-            $sheet->mergeCells("A{$row}:I{$row}");
-            $sheet->setCellValue("A{$row}", 'DETAILED TRANSACTIONS');
+            $sheet->mergeCells("A{$row}:K{$row}");
+            $sheet->setCellValue("A{$row}", 'DETAILED TRANSACTIONS (Organized by Status and Purpose, Sorted by Date)');
             $sheet->getStyle("A{$row}")->getFont()->setBold(true);
             $sheet->getStyle("A{$row}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('15592F');
             $sheet->getStyle("A{$row}")->getFont()->getColor()->setRGB('FFFFFF');
@@ -622,41 +666,85 @@ class ReportController extends Controller
             
             $row++; // Empty row
             
-            // Headers
-            $headers = ['Date', 'Student ID', 'Student Name', 'Course', 'Year', 'Purpose', 'Schedule', 'Time', 'Status'];
-            $col = 'A';
-            foreach ($headers as $header) {
-                $sheet->setCellValue("{$col}{$row}", $header);
-                $col++;
-            }
-            $headerStyle = $sheet->getStyle("A{$row}:I{$row}");
-            $headerStyle->getFont()->setBold(true);
-            $headerStyle->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('15592F');
-            $headerStyle->getFont()->getColor()->setRGB('FFFFFF');
-            $row++;
+            // Group transactions by status first, then by purpose
+            $groupedTransactions = $transactions->groupBy('status')->map(function($statusGroup) {
+                return $statusGroup->groupBy(function($transaction) {
+                    return $transaction->purpose ? $transaction->purpose->name : 'N/A';
+                })->map(function($purposeGroup) {
+                    // Sort by date (date_requested, then created_at as fallback) in descending order
+                    return $purposeGroup->sortByDesc(function($transaction) {
+                        return $transaction->date_requested ?? $transaction->created_at;
+                    });
+                });
+            });
             
-            // Data rows
-            foreach ($transactions as $transaction) {
-                $studentName = trim(($transaction->user->fname ?? '') . ' ' . ($transaction->user->mname ?? '') . ' ' . ($transaction->user->lname ?? '')) ?: 'N/A';
+            // Define status order for better organization
+            $statusOrder = ['pending', 'approved', 'completed', 'rejected', 'cancelled'];
+            
+            // Process each status group in order
+            foreach ($statusOrder as $status) {
+                if (!isset($groupedTransactions[$status])) continue;
                 
-                $sheet->setCellValue("A{$row}", date('Y-m-d', strtotime($transaction->created_at)));
-                $sheet->setCellValue("B{$row}", $transaction->user->student_id ?? 'N/A');
-                $sheet->setCellValue("C{$row}", $studentName);
-                $sheet->setCellValue("D{$row}", $transaction->user->course ?? 'N/A');
-                $sheet->setCellValue("E{$row}", $transaction->user->year_level ?? 'N/A');
-                $sheet->setCellValue("F{$row}", $transaction->purpose);
-                $sheet->setCellValue("G{$row}", $transaction->schedule_date ?? 'N/A');
-                $sheet->setCellValue("H{$row}", $transaction->time_slot ?? 'N/A');
-                $sheet->setCellValue("I{$row}", ucfirst($transaction->status));
+                $purposeGroups = $groupedTransactions[$status];
+                
+                // Add status header
+                $sheet->mergeCells("A{$row}:K{$row}");
+                $sheet->setCellValue("A{$row}", 'STATUS: ' . strtoupper($status) . ' (' . $purposeGroups->flatten()->count() . ' transactions)');
+                $sheet->getStyle("A{$row}")->getFont()->setBold(true)->setSize(11);
+                $sheet->getStyle("A{$row}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('E0E0E0');
                 $row++;
+                
+                // Process each purpose within this status
+                foreach ($purposeGroups as $purposeName => $transactionsInPurpose) {
+                    // Add purpose subheader
+                    $sheet->mergeCells("A{$row}:K{$row}");
+                    $sheet->setCellValue("A{$row}", '  Purpose: ' . $purposeName . ' (' . $transactionsInPurpose->count() . ' transactions)');
+                    $sheet->getStyle("A{$row}")->getFont()->setBold(true)->setItalic(true);
+                    $row++;
+                    
+                    // Headers for this section
+                    $headers = ['Date Requested', 'Student ID', 'Student Name', 'Course', 'Year', 'Schedule', 'Time', 'Type', 'Status Updated'];
+                    $col = 'B'; // Start from column B (leave A empty for indentation)
+                    foreach ($headers as $header) {
+                        $sheet->setCellValue("{$col}{$row}", $header);
+                        $col++;
+                    }
+                    $headerStyle = $sheet->getStyle("B{$row}:J{$row}");
+                    $headerStyle->getFont()->setBold(true)->setSize(9);
+                    $headerStyle->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('D3D3D3');
+                    $row++;
+                    
+                    // Data rows
+                    foreach ($transactionsInPurpose as $transaction) {
+                        // Use pure relationship to get student name from masterlist
+                        $studentName = $this->formatStudentName($transaction->user->masterlist ?? null);
+                        
+                        $dateRequested = $transaction->date_requested 
+                            ? $transaction->date_requested->format('Y-m-d') 
+                            : $transaction->created_at->format('Y-m-d');
+                        
+                        $sheet->setCellValue("B{$row}", $dateRequested);
+                        $sheet->setCellValue("C{$row}", $transaction->user->student_id ?? 'N/A');
+                        $sheet->setCellValue("D{$row}", $studentName);
+                        $sheet->setCellValue("E{$row}", $transaction->user->masterlist->course ?? 'N/A');
+                        $sheet->setCellValue("F{$row}", $transaction->user->masterlist->year_level ?? 'N/A');
+                        $sheet->setCellValue("G{$row}", $transaction->schedule_date ?? 'N/A');
+                        $sheet->setCellValue("H{$row}", $transaction->time_slot ?? 'N/A');
+                        $sheet->setCellValue("I{$row}", ucfirst($transaction->request_type ?? 'N/A'));
+                        $sheet->setCellValue("J{$row}", $transaction->updated_at->format('Y-m-d H:i'));
+                        $row++;
+                    }
+                    
+                    $row++; // Empty row after each purpose group
+                }
+                
+                $row++; // Empty row after each status group
             }
-            
-            $row++; // Empty row
         }
         
         // Feedback Summary
         if ($includeFeedback && $feedbackData) {
-            $sheet->mergeCells("A{$row}:I{$row}");
+            $sheet->mergeCells("A{$row}:J{$row}");
             $sheet->setCellValue("A{$row}", 'FEEDBACK SUMMARY');
             $sheet->getStyle("A{$row}")->getFont()->setBold(true)->setSize(14);
             $sheet->getStyle("A{$row}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('15592F');
@@ -726,8 +814,11 @@ class ReportController extends Controller
                 
                 // Data rows
                 foreach ($feedbackData['feedback_details'] as $feedback) {
-                    $studentName = trim(($feedback->user->fname ?? '') . ' ' . ($feedback->user->mname ?? '') . ' ' . ($feedback->user->lname ?? '')) ?: 'N/A';
-                    $purpose = $feedback->transaction_purpose ?? 'N/A';
+                    // Use pure relationship user.masterlist for student name with middle name hiding
+                    $studentName = $this->formatStudentName($feedback->user->masterlist ?? null);
+                    
+                    // Get purpose name from relationship
+                    $purpose = $feedback->purpose ? $feedback->purpose->name : 'N/A';
                     
                     $sheet->setCellValue("A{$row}", $studentName);
                     $sheet->setCellValue("B{$row}", $feedback->user->student_id ?? 'N/A');
@@ -745,18 +836,44 @@ class ReportController extends Controller
         }
         
         // Auto-size columns
-        foreach (range('A', 'I') as $col) {
+        foreach (range('A', 'J') as $col) {
             $sheet->getColumnDimension($col)->setAutoSize(true);
         }
         
         // Create Excel file
-        $writer = new Xlsx($spreadsheet);
-        $tempFile = tempnam(sys_get_temp_dir(), 'excel');
-        $writer->save($tempFile);
-        $content = file_get_contents($tempFile);
-        unlink($tempFile);
-        
-        return $content;
+        try {
+            $writer = new Xlsx($spreadsheet);
+            $tempFile = tempnam(sys_get_temp_dir(), 'excel_');
+            
+            if ($tempFile === false) {
+                throw new \Exception('Failed to create temporary file for Excel export');
+            }
+            
+            \Log::info('Excel temp file created', ['path' => $tempFile]);
+            
+            $writer->save($tempFile);
+            
+            if (!file_exists($tempFile)) {
+                throw new \Exception('Excel file was not created successfully');
+            }
+            
+            $fileSize = filesize($tempFile);
+            \Log::info('Excel file saved', ['size' => $fileSize]);
+            
+            if ($fileSize === 0) {
+                throw new \Exception('Excel file is empty');
+            }
+            
+            $content = file_get_contents($tempFile);
+            unlink($tempFile);
+            
+            \Log::info('Excel content read', ['content_length' => strlen($content)]);
+            
+            return $content;
+        } catch (\Exception $e) {
+            \Log::error('Excel generation failed: ' . $e->getMessage());
+            throw new \Exception('Failed to generate Excel file: ' . $e->getMessage());
+        }
     }
     
     /**
@@ -790,76 +907,111 @@ class ReportController extends Controller
             fputcsv($output, []); // Empty line
         }
         
-        // Add detailed transactions if requested
+        // Add detailed transactions if requested - ORGANIZED BY STATUS AND PURPOSE, SORTED BY DATE
         if ($includeDetails && $transactions->count() > 0) {
-            fputcsv($output, ['DETAILED TRANSACTIONS']);
+            fputcsv($output, ['DETAILED TRANSACTIONS (Organized by Status and Purpose, Sorted by Date)']);
             fputcsv($output, []); // Empty line
             
-            // Add CSV headers
-            fputcsv($output, [
-                'Date',
-                'Student ID',
-                'Student Name',
-                'Course',
-                'Year Level',
-                'Purpose',
-                'Address',
-                'Schedule Date',
-                'Time Slot',
-                'Status',
-                'Created At'
-            ]);
+            // Group transactions by status first, then by purpose
+            $groupedTransactions = $transactions->groupBy('status')->map(function($statusGroup) {
+                return $statusGroup->groupBy(function($transaction) {
+                    return $transaction->purpose ? $transaction->purpose->name : 'N/A';
+                })->map(function($purposeGroup) {
+                    // Sort by date (date_requested, then created_at as fallback) in descending order
+                    return $purposeGroup->sortByDesc(function($transaction) {
+                        return $transaction->date_requested ?? $transaction->created_at;
+                    });
+                });
+            });
             
-            // Add data rows using PURE RELATIONSHIPS
-            foreach ($transactions as $transaction) {
-                // Get student name from user->masterlist relationship
-                $studentName = 'N/A';
-                if ($transaction->user && $transaction->user->masterlist) {
-                    $studentName = trim(
-                        $transaction->user->masterlist->fname . ' ' . 
-                        ($transaction->user->masterlist->mname ? $transaction->user->masterlist->mname . ' ' : '') . 
-                        $transaction->user->masterlist->lname
-                    );
+            // Define status order for better organization
+            $statusOrder = ['pending', 'approved', 'completed', 'rejected', 'cancelled'];
+            
+            // Process each status group in order
+            foreach ($statusOrder as $status) {
+                if (!isset($groupedTransactions[$status])) continue;
+                
+                $purposeGroups = $groupedTransactions[$status];
+                
+                // Add status header
+                fputcsv($output, ['STATUS: ' . strtoupper($status) . ' (' . $purposeGroups->flatten()->count() . ' transactions)']);
+                fputcsv($output, []); // Empty line
+                
+                // Process each purpose within this status
+                foreach ($purposeGroups as $purposeName => $transactionsInPurpose) {
+                    // Add purpose subheader
+                    fputcsv($output, ['  Purpose: ' . $purposeName . ' (' . $transactionsInPurpose->count() . ' transactions)']);
+                    
+                    // Add CSV headers for this section
+                    fputcsv($output, [
+                        '',
+                        'Date Requested',
+                        'Student ID',
+                        'Student Name',
+                        'Course',
+                        'Year Level',
+                        'Address',
+                        'Schedule Date',
+                        'Time Slot',
+                        'Release Date',
+                        'Status Updated',
+                        'Request Type'
+                    ]);
+                    
+                    // Add data rows using PURE RELATIONSHIPS
+                    foreach ($transactionsInPurpose as $transaction) {
+                        // Get student name from user->masterlist relationship with middle name hiding
+                        $studentName = $this->formatStudentName($transaction->user->masterlist ?? null);
+                        
+                        // Get address from user relationship
+                        $address = 'N/A';
+                        if ($transaction->user) {
+                            $address = trim(
+                                ($transaction->user->barangay ?? '') . ', ' . 
+                                ($transaction->user->municipality ?? '') . ', ' . 
+                                ($transaction->user->province ?? '') . ', ' .
+                                ($transaction->user->region ?? '')
+                            );
+                            $address = trim($address, ', ');
+                        }
+                        
+                        // Get course and year level from user->masterlist relationship
+                        $course = $transaction->user && $transaction->user->masterlist 
+                            ? ($transaction->user->masterlist->course ?? 'N/A') 
+                            : 'N/A';
+                        $yearLevel = $transaction->user && $transaction->user->masterlist 
+                            ? ($transaction->user->masterlist->year_level ?? 'N/A') 
+                            : 'N/A';
+                        
+                        $dateRequested = $transaction->date_requested 
+                            ? $transaction->date_requested->format('Y-m-d') 
+                            : $transaction->created_at->format('Y-m-d');
+                        
+                        // Format release_date (only for completed transactions)
+                        $releaseDate = 'N/A';
+                        if ($transaction->status === 'completed' && $transaction->release_date) {
+                            $releaseDate = date('Y-m-d', strtotime($transaction->release_date));
+                        }
+                        
+                        fputcsv($output, [
+                            '',
+                            $dateRequested,
+                            $transaction->user ? $transaction->user->student_id : 'N/A',
+                            $studentName,
+                            $course,
+                            $yearLevel,
+                            $address,
+                            $transaction->schedule_date,
+                            $transaction->time_slot,
+                            $releaseDate,
+                            $transaction->updated_at->format('Y-m-d H:i:s'),
+                            ucfirst($transaction->request_type ?? 'N/A')
+                        ]);
+                    }
+                    fputcsv($output, []); // Empty line after each purpose group
                 }
-                
-                // Get address from user relationship
-                $address = 'N/A';
-                if ($transaction->user) {
-                    $address = trim(
-                        ($transaction->user->barangay ?? '') . ', ' . 
-                        ($transaction->user->municipality ?? '') . ', ' . 
-                        ($transaction->user->province ?? '') . ', ' .
-                        ($transaction->user->region ?? '')
-                    );
-                    $address = trim($address, ', ');
-                }
-                
-                // Get purpose name from purpose relationship
-                $purposeName = $transaction->purpose ? $transaction->purpose->name : 'N/A';
-                
-                // Get course and year level from user->masterlist relationship
-                $course = $transaction->user && $transaction->user->masterlist 
-                    ? ($transaction->user->masterlist->course ?? 'N/A') 
-                    : 'N/A';
-                $yearLevel = $transaction->user && $transaction->user->masterlist 
-                    ? ($transaction->user->masterlist->year_level ?? 'N/A') 
-                    : 'N/A';
-                
-                fputcsv($output, [
-                    $transaction->date_requested ? $transaction->date_requested->format('Y-m-d') : $transaction->created_at->format('Y-m-d'),
-                    $transaction->user ? $transaction->user->student_id : 'N/A',
-                    $studentName,
-                    $course,
-                    $yearLevel,
-                    $purposeName,
-                    $address,
-                    $transaction->schedule_date,
-                    $transaction->time_slot,
-                    ucfirst($transaction->status),
-                    $transaction->created_at->format('Y-m-d H:i:s')
-                ]);
+                fputcsv($output, []); // Empty line after each status group
             }
-            fputcsv($output, []); // Empty line
         }
         
         // Add feedback summary if requested
@@ -886,8 +1038,11 @@ class ReportController extends Controller
                 fputcsv($output, ['Student Name', 'Student ID', 'Transaction Purpose', 'Transaction Date', 'Rating', 'Feedback Message', 'Submitted Date']);
                 
                 foreach ($feedbackData['feedback_details'] as $feedback) {
-                    $studentName = trim(($feedback->user->fname ?? '') . ' ' . ($feedback->user->mname ?? '') . ' ' . ($feedback->user->lname ?? '')) ?: 'N/A';
-                    $purpose = $feedback->transaction_purpose ?? 'N/A';
+                    // Use pure relationship user.masterlist for student name with middle name hiding
+                    $studentName = $this->formatStudentName($feedback->user->masterlist ?? null);
+                    
+                    // Get purpose name from relationship
+                    $purpose = $feedback->purpose ? $feedback->purpose->name : 'N/A';
                     
                     fputcsv($output, [
                         $studentName,
@@ -963,12 +1118,36 @@ class ReportController extends Controller
     }
     
     /**
-     * Get feedback data for the report
+     * Format student name properly - hide middle name if it's NA variations
+     */
+    private function formatStudentName($masterlist)
+    {
+        if (!$masterlist) {
+            return 'N/A';
+        }
+        
+        $fname = $masterlist->fname ?? '';
+        $mname = $masterlist->mname ?? '';
+        $lname = $masterlist->lname ?? '';
+        
+        // Check if middle name should be hidden (NA, N.A, N A, N.A., etc.)
+        $hideMiddle = empty($mname) || preg_match('/^N\.?\s*A\.?$/i', trim($mname));
+        
+        if ($hideMiddle) {
+            return trim("{$fname} {$lname}");
+        }
+        
+        return trim("{$fname} {$mname} {$lname}");
+    }
+
+    /**
+     * Get feedback data for the report - Pure Relationship
      */
     private function getFeedbackData($startDate, $endDate)
     {
         try {
-            $query = \App\Models\Feedback::with('user');
+            // Use pure relationships: user.masterlist for user data, purpose for purpose data
+            $query = \App\Models\Feedback::with(['user.masterlist', 'purpose', 'transaction']);
             
             if ($startDate) {
                 $query->whereDate('created_at', '>=', $startDate);
@@ -1075,22 +1254,23 @@ class ReportController extends Controller
                 
                 // Add data rows
                 foreach ($transactions as $transaction) {
-                    $studentName = $transaction->user 
-                        ? trim($transaction->user->fname . ' ' . $transaction->user->mname . ' ' . $transaction->user->lname)
-                        : 'N/A';
+                    // Use pure relationship to get student name from masterlist
+                    $studentName = $this->formatStudentName($transaction->user->masterlist ?? null);
                     
-                    $address = trim($transaction->street_house_no . ', ' . 
-                                  $transaction->brgy . ', ' . 
-                                  $transaction->municipality . ', ' . 
-                                  $transaction->province);
+                    // Get address from user relationship
+                    $address = $transaction->user 
+                        ? trim(($transaction->user->barangay ?? '') . ', ' . 
+                              ($transaction->user->municipality ?? '') . ', ' . 
+                              ($transaction->user->province ?? ''))
+                        : 'N/A';
                     
                     fputcsv($file, [
                         $transaction->created_at->format('Y-m-d'),
                         $transaction->user->student_id ?? 'N/A',
                         $studentName,
-                        $transaction->user->course ?? 'N/A',
-                        $transaction->user->year_level ?? 'N/A',
-                        $transaction->purpose,
+                        $transaction->user->masterlist->course ?? 'N/A',
+                        $transaction->user->masterlist->year_level ?? 'N/A',
+                        $transaction->purpose->name ?? 'N/A',
                         $address,
                         $transaction->schedule_date,
                         $transaction->time_slot,

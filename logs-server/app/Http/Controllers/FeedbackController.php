@@ -12,9 +12,7 @@ class FeedbackController extends Controller
      */
     public function index(Request $request)
     {
-        $query = Feedback::with(['user' => function($q) {
-                $q->select('id', 'student_id', 'email');
-            }])
+        $query = Feedback::with(['user.masterlist', 'purpose'])
             ->orderBy('created_at', 'desc');
 
         // Filter by rating if provided
@@ -33,7 +31,8 @@ class FeedbackController extends Controller
      */
     public function getUserFeedback(Request $request)
     {
-        $feedback = Feedback::where('user_id', $request->user()->id)
+        $feedback = Feedback::where('student_id', $request->user()->student_id)
+            ->with(['purpose', 'transaction'])
             ->orderBy('created_at', 'desc')
             ->get();
 
@@ -79,16 +78,15 @@ class FeedbackController extends Controller
 
         // Create feedback with transaction reference (using purpose relationship)
         $feedback = Feedback::create([
-            'user_id' => $user->id,
+            'student_id' => $user->student_id,
             'transaction_id' => $transaction->id,
-            'transaction_purpose' => $transaction->purpose ? $transaction->purpose->name : 'N/A',
-            'transaction_date' => \Carbon\Carbon::parse($transaction->schedule_date)->format('Y-m-d'),
+            'purpose_id' => $transaction->purpose_id,
             'rating' => $request->rating,
             'message' => $request->message,
         ]);
 
         // Load relationships
-        $feedback->load('user', 'transaction');
+        $feedback->load('user.masterlist', 'transaction', 'purpose');
 
         return response()->json([
             'message' => 'Feedback submitted successfully',
@@ -131,7 +129,7 @@ class FeedbackController extends Controller
 
             // Get all transaction IDs that already have feedback
             $feedbackTransactionIds = \DB::table('feedback')
-                ->where('user_id', $user->id)
+                ->where('student_id', $user->student_id)
                 ->whereNotNull('transaction_id')
                 ->pluck('transaction_id')
                 ->toArray();
@@ -179,8 +177,8 @@ class FeedbackController extends Controller
 
         // Check if there's feedback for THIS SPECIFIC transaction by transaction_id
         $feedback = Feedback::where('transaction_id', $transactionId)
-            ->where('user_id', $user->id)
-            ->with('user', 'transaction')
+            ->where('student_id', $user->student_id)
+            ->with(['user.masterlist', 'transaction', 'purpose'])
             ->first();
 
         return response()->json([
@@ -195,8 +193,9 @@ class FeedbackController extends Controller
     public function show($id)
     {
         $feedback = Feedback::with([
-            'user',
-            'transaction.purpose'
+            'user.masterlist',
+            'transaction',
+            'purpose'
         ])
             ->findOrFail($id);
 

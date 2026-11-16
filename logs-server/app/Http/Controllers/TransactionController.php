@@ -8,6 +8,7 @@ use App\Models\ActivityLog;
 use App\Mail\TransactionStatusMail;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
+use App\Http\Controllers\NotificationController;
 
 class TransactionController extends Controller
 {
@@ -63,17 +64,40 @@ class TransactionController extends Controller
     }
 
     /**
-     * Get authenticated user's transactions
+     * Get authenticated user's transactions - Pure Relationship
      */
     public function getUserTransactions(Request $request)
     {
-        $transactions = Transaction::where('student_id', $request->user()->id)
+        $transactions = Transaction::where('student_id', $request->user()->student_id)
+            ->with(['purpose'])
             ->latest()
             ->get();
 
         return response()->json([
             'message' => 'Your transactions retrieved successfully',
             'transactions' => $transactions
+        ], 200);
+    }
+
+    /**
+     * Get single user transaction - Pure Relationship
+     */
+    public function getUserTransaction(Request $request, $id)
+    {
+        $transaction = Transaction::where('id', $id)
+            ->where('student_id', $request->user()->student_id)
+            ->with(['purpose'])
+            ->first();
+
+        if (!$transaction) {
+            return response()->json([
+                'message' => 'Transaction not found or you do not have permission to view this appointment'
+            ], 404);
+        }
+
+        return response()->json([
+            'message' => 'Transaction retrieved successfully',
+            'transaction' => $transaction
         ], 200);
     }
 
@@ -86,6 +110,10 @@ class TransactionController extends Controller
      */
     public function store(Request $request)
     {
+        \Log::info('=== store() called ===');
+        \Log::info('Request data: ' . json_encode($request->all()));
+        \Log::info('User: ' . json_encode($request->user()));
+        
         $request->validate([
             'purpose_id' => 'required|exists:purposes,id',
             'schedule_date' => 'required|date|after_or_equal:today',
@@ -96,7 +124,7 @@ class TransactionController extends Controller
         $maxUsersPerSlot = 5;
         $maxTransactionsPerUserPerSlot = 3;
 
-        $userId = $request->user()->id;
+        $studentId = $request->user()->student_id; // Pure relationship - use student_id
         $scheduleDate = $request->schedule_date;
         $timeSlot = $request->time_slot;
 
@@ -120,11 +148,11 @@ class TransactionController extends Controller
         // Check 2: Count current user's transactions in this specific slot
         $userTransactionCount = Transaction::whereRaw('DATE(schedule_date) = ?', [$scheduleDate])
             ->where('time_slot', $timeSlot)
-            ->where('student_id', $userId)
+            ->where('student_id', $studentId)
             ->whereIn('status', ['pending', 'approved'])
             ->count();
 
-        \Log::info("User {$userId} transaction count for {$scheduleDate} {$timeSlot}: {$userTransactionCount}/{$maxTransactionsPerUserPerSlot}");
+        \Log::info("User {$studentId} transaction count for {$scheduleDate} {$timeSlot}: {$userTransactionCount}/{$maxTransactionsPerUserPerSlot}");
 
         // Check if user already has booking in this slot
         $userHasBookingInSlot = $userTransactionCount > 0;
@@ -150,7 +178,7 @@ class TransactionController extends Controller
         }
 
         // Check if user already has a pending or approved appointment with the same purpose (Pure Relationship)
-        $existingPurposeAppointment = Transaction::where('student_id', $userId)
+        $existingPurposeAppointment = Transaction::where('student_id', $studentId)
             ->where('purpose_id', $request->purpose_id)
             ->whereIn('status', ['pending', 'approved'])
             ->first();
@@ -166,7 +194,7 @@ class TransactionController extends Controller
         // Request type is 'online' when created by user
         // date_requested is automatically set to current timestamp
         $transaction = Transaction::create([
-            'student_id' => $userId,
+            'student_id' => $studentId,
             'date_requested' => now(),
             'request_type' => 'online',
             'purpose_id' => $request->purpose_id,
@@ -179,6 +207,15 @@ class TransactionController extends Controller
         $transaction->load(['user.masterlist', 'purpose']);
 
         \Log::info("Transaction created successfully. New counts - Unique users: " . ($uniqueUserCount + ($userHasBookingInSlot ? 0 : 1)) . ", User transactions: " . ($userTransactionCount + 1));
+
+        // Create notification for admin/staff about new online request
+        \App\Http\Controllers\NotificationController::createNotification(
+            $transaction->id, 
+            'new_request', 
+            'admin', 
+            'all'
+        );
+        \Log::info('Notification created for new online request', ['transaction_id' => $transaction->id]);
 
         return response()->json([
             'message' => 'Appointment created successfully',
@@ -341,6 +378,22 @@ class TransactionController extends Controller
                 \Log::info('Rejection reason: ' . $rejectionReason);
             }
             
+            // Set timestamps when status changes
+            if ($newStatus === 'approved' && $oldStatus !== 'approved') {
+                $transaction->approved_at = now();
+                \Log::info('Approved timestamp set to: ' . $transaction->approved_at);
+            }
+            
+            if ($newStatus === 'rejected' && $oldStatus !== 'rejected') {
+                $transaction->rejected_at = now();
+                \Log::info('Rejected timestamp set to: ' . $transaction->rejected_at);
+            }
+            
+            if ($newStatus === 'cancelled' && $oldStatus !== 'cancelled') {
+                $transaction->cancelled_at = now();
+                \Log::info('Cancelled timestamp set to: ' . $transaction->cancelled_at);
+            }
+            
             // Set release_date when status becomes completed
             if ($newStatus === 'completed' && $oldStatus !== 'completed') {
                 $transaction->release_date = now();
@@ -350,21 +403,35 @@ class TransactionController extends Controller
             $transaction->save();
             \Log::info('Transaction status updated from ' . $oldStatus . ' to ' . $newStatus);
 
+            // Create notification for client
+            if ($newStatus === 'approved') {
+                NotificationController::createNotification($transaction->id, 'approved', 'client', $transaction->student_id);
+            } elseif ($newStatus === 'rejected') {
+                NotificationController::createNotification($transaction->id, 'rejected', 'client', $transaction->student_id, $rejectionReason);
+            } elseif ($newStatus === 'completed') {
+                NotificationController::createNotification($transaction->id, 'completed', 'client', $transaction->student_id);
+            }
+
             // Send email notification AFTER saving if status changes to approved, rejected, or completed
             if (in_array($newStatus, ['approved', 'rejected', 'completed']) && $oldStatus !== $newStatus) {
                 try {
+                    // Reload transaction with relationships for email
+                    $transaction->load(['user.masterlist', 'purpose']);
+                    
                     $user = $transaction->user;
                     
                     if (!$user) {
+                        \Log::error('User not found for transaction ID: ' . $transaction->id);
                         return response()->json([
                             'message' => 'User not found for this transaction',
                             'error' => 'user_not_found'
                         ], 404);
                     }
                     
-                    // Get student info from masterlist
+                    // Get student info from masterlist (Pure Relationship)
                     $masterlist = $user->masterlist;
                     if (!$masterlist) {
+                        \Log::error('Masterlist not found for student_id: ' . $user->student_id);
                         return response()->json([
                             'message' => 'Masterlist not found for this user',
                             'error' => 'masterlist_not_found'
@@ -374,12 +441,21 @@ class TransactionController extends Controller
                     $studentName = $masterlist->fname . ' ' . $masterlist->lname;
                     $studentEmail = $masterlist->email;
 
-                    \Log::info('Sending email to: ' . $studentEmail);
+                    \Log::info('Sending email notification:');
+                    \Log::info('- To: ' . $studentEmail);
+                    \Log::info('- Student: ' . $studentName);
+                    \Log::info('- Status: ' . $newStatus);
+                    \Log::info('- Purpose: ' . ($transaction->purpose->name ?? 'N/A'));
+                    if ($rejectionReason) {
+                        \Log::info('- Rejection Reason: ' . $rejectionReason);
+                    }
+                    
                     Mail::to($studentEmail)->send(new TransactionStatusMail($transaction, $newStatus, $studentName, $rejectionReason));
                     \Log::info('Email sent successfully');
                     
                 } catch (\Exception $e) {
                     \Log::error('Failed to send transaction status email: ' . $e->getMessage());
+                    \Log::error('Stack trace: ' . $e->getTraceAsString());
                     
                     // Log warning but don't fail the transaction update since it's already saved
                     \Log::warning('Transaction status was updated, but email notification failed');
@@ -429,12 +505,16 @@ class TransactionController extends Controller
     }
 
     /**
-     * Cancel user's own transaction
+     * Cancel user's own transaction with reason
      */
     public function cancel(Request $request, $id)
     {
+        $request->validate([
+            'cancellation_reason' => 'required|string|min:10|max:500'
+        ]);
+
         $transaction = Transaction::where('id', $id)
-            ->where('student_id', $request->user()->id)
+            ->where('student_id', $request->user()->student_id)
             ->first();
 
         if (!$transaction) {
@@ -449,8 +529,18 @@ class TransactionController extends Controller
             ], 400);
         }
 
+        if ($transaction->status === 'cancelled') {
+            return response()->json([
+                'message' => 'This appointment is already cancelled'
+            ], 400);
+        }
+
         $transaction->status = 'cancelled';
+        $transaction->rejection_reason = $request->cancellation_reason; // Save cancellation reason
         $transaction->save();
+
+        // Create notification for admin/staff about cancellation
+        NotificationController::createNotification($transaction->id, 'cancelled', 'admin', 'all', $request->cancellation_reason);
 
         return response()->json([
             'message' => 'Appointment cancelled successfully',
@@ -589,12 +679,14 @@ class TransactionController extends Controller
     {
         $request->validate([
             'date' => 'required|date|after_or_equal:today',
-            'user_id' => 'nullable|integer' // Optional: to check user-specific limits
         ]);
 
         \Log::info('=== getAvailableSlots called ===');
         \Log::info('Requested date: ' . $request->date);
-        \Log::info('User ID: ' . ($request->user_id ?? 'not provided'));
+        
+        // Get authenticated user's student_id
+        $studentId = $request->user() ? $request->user()->student_id : null;
+        \Log::info('User student_id: ' . ($studentId ?? 'not authenticated'));
 
         $allSlots = [
             'morning' => [
@@ -627,11 +719,11 @@ class TransactionController extends Controller
 
         \Log::info('Unique user counts per slot: ' . json_encode($slotCounts));
 
-        // If user_id is provided, get their transaction counts per slot
+        // If user is authenticated, get their transaction counts per slot
         $userTransactionCounts = [];
-        if ($request->user_id) {
+        if ($studentId) {
             $userTransactionCounts = Transaction::whereRaw('DATE(schedule_date) = ?', [$request->date])
-                ->where('student_id', $request->user_id)
+                ->where('student_id', $studentId)
                 ->whereIn('status', ['pending', 'approved'])
                 ->select('time_slot', \DB::raw('COUNT(*) as count'))
                 ->groupBy('time_slot')
@@ -714,6 +806,7 @@ class TransactionController extends Controller
         return response()->json([
             'message' => 'Available slots retrieved successfully',
             'date' => $request->date,
+            'server_time' => now()->toIso8601String(), // Include server timestamp
             'available_slots' => $availableSlots,
             'full_slots' => $fullSlots,
             'slot_details' => $slotAvailability,

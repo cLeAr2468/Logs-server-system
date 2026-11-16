@@ -42,11 +42,13 @@ class AuthController extends Controller
     {
         $request->validate([
             'student_id' => 'required',
+            'mname' => 'required|string|max:50',
             'suffix' => 'nullable|string|in:Jr.,Sr.,II,III,IV,V',
             'region' => 'required|string|max:255',
             'province' => 'required|string|max:255',
             'municipality' => 'required|string|max:255',
             'barangay' => 'required|string|max:255',
+            'purok' => 'nullable|string|max:255',
             'password' => 'required|min:6',
         ]);
 
@@ -100,6 +102,7 @@ class AuthController extends Controller
             'province' => $request->province,
             'municipality' => $request->municipality,
             'barangay' => $request->barangay,
+            'purok' => $request->purok,
             'status' => 'Active',
             'password' => Hash::make($request->password),
         ]);
@@ -164,6 +167,7 @@ class AuthController extends Controller
                 'province' => $user->province,
                 'municipality' => $user->municipality,
                 'barangay' => $user->barangay,
+                'purok' => $user->purok,
             ]
         ], 201);
     }
@@ -177,10 +181,22 @@ class AuthController extends Controller
                 'password' => 'required'
             ]);
 
-            // Find user by email through masterlist relationship
-            $user = User::whereHas('masterlist', function($query) use ($request) {
-                $query->where('email', $request->email);
-            })->with('masterlist')->first();
+            // Find masterlist entry with matching email
+            // Email is encrypted, so Laravel will decrypt it automatically when comparing
+            $masterlist = \App\Models\Masterlist::all()->first(function($m) use ($request) {
+                return $m->email === $request->email;
+            });
+
+            if (!$masterlist) {
+                return response()->json([
+                    'message' => 'Invalid credentials'
+                ], 401);
+            }
+
+            // Find user with matching student_id
+            $user = User::where('student_id', $masterlist->student_id)
+                        ->with('masterlist')
+                        ->first();
 
             if (!$user || !Hash::check($request->password, $user->password)) {
                 return response()->json([
@@ -223,6 +239,7 @@ class AuthController extends Controller
                     'province' => $user->province,
                     'municipality' => $user->municipality,
                     'barangay' => $user->barangay,
+                    'purok' => $user->purok,
                     'status' => $user->status,
                 ]
             ]);
@@ -251,6 +268,7 @@ class AuthController extends Controller
             'province' => 'nullable|string',
             'municipality' => 'nullable|string',
             'barangay' => 'nullable|string',
+            'purok' => 'nullable|string',
             'password' => 'sometimes|required|min:6',
         ]);
 
@@ -277,6 +295,10 @@ class AuthController extends Controller
             $user->barangay = $request->barangay;
         }
         
+        if ($request->has('purok')) {
+            $user->purok = $request->purok;
+        }
+        
         if ($request->has('password')) {
             $user->password = Hash::make($request->password);
         }
@@ -299,6 +321,7 @@ class AuthController extends Controller
                 'province' => $user->province,
                 'municipality' => $user->municipality,
                 'barangay' => $user->barangay,
+                'purok' => $user->purok,
             ]
         ]);
     }
@@ -341,6 +364,7 @@ class AuthController extends Controller
                 'province' => $user->province ?? '',
                 'municipality' => $user->municipality ?? '',
                 'barangay' => $user->barangay ?? '',
+                'purok' => $user->purok ?? '',
                 'status' => $user->status ?? 'Active',
                 'profile' => $user->profile ?? '',
             ]
@@ -353,16 +377,73 @@ class AuthController extends Controller
         $user = $request->user()->load('masterlist');
 
         $request->validate([
-            'suffix' => 'nullable|string',
+            // Masterlist fields
+            'firstname' => 'nullable|string|max:50',
+            'middlename' => 'nullable|string|max:50',
+            'lastname' => 'nullable|string|max:50',
+            'email' => 'nullable|email|max:255',
+            'course' => 'nullable|string|max:100',
+            'year' => 'nullable|string|in:1,2,3,4',
+            // User fields
+            'suffix' => 'nullable|string|in:Jr.,Sr.,II,III,IV,V,',
             'region' => 'nullable|string',
             'barangay' => 'nullable|string|max:255',
             'municipality' => 'nullable|string|max:255',
             'province' => 'nullable|string|max:255',
+            'purok' => 'nullable|string|max:255',
         ]);
 
-        // Only allow updating user-specific fields (address info)
-        // Name, email, course, year_level are READ-ONLY from masterlist
-        
+        // Update masterlist fields if provided
+        if ($user->masterlist) {
+            $masterlistUpdated = false;
+            
+            if ($request->has('firstname') && $request->firstname !== null) {
+                $user->masterlist->fname = $request->firstname;
+                $masterlistUpdated = true;
+            }
+            
+            if ($request->has('middlename')) {
+                $user->masterlist->mname = $request->middlename ?: '';
+                $masterlistUpdated = true;
+            }
+            
+            if ($request->has('lastname') && $request->lastname !== null) {
+                $user->masterlist->lname = $request->lastname;
+                $masterlistUpdated = true;
+            }
+            
+            if ($request->has('email') && $request->email !== null) {
+                // Check if email is already used by another user
+                $existingMasterlist = \App\Models\Masterlist::where('email', $request->email)
+                    ->where('student_id', '!=', $user->student_id)
+                    ->first();
+                    
+                if ($existingMasterlist) {
+                    return response()->json([
+                        'message' => 'This email is already registered to another account'
+                    ], 422);
+                }
+                
+                $user->masterlist->email = $request->email;
+                $masterlistUpdated = true;
+            }
+            
+            if ($request->has('course') && $request->course !== null) {
+                $user->masterlist->course = $request->course;
+                $masterlistUpdated = true;
+            }
+            
+            if ($request->has('year') && $request->year !== null) {
+                $user->masterlist->year_level = $request->year;
+                $masterlistUpdated = true;
+            }
+            
+            if ($masterlistUpdated) {
+                $user->masterlist->save();
+            }
+        }
+
+        // Update user-specific fields
         if ($request->has('suffix')) {
             $user->suffix = $request->suffix;
         }
@@ -382,8 +463,16 @@ class AuthController extends Controller
         if ($request->has('province')) {
             $user->province = $request->province;
         }
+        
+        if ($request->has('purok')) {
+            $user->purok = $request->purok;
+        }
 
         $user->save();
+
+        // Reload relationships to get updated data
+        $user->refresh();
+        $user->load('masterlist');
 
         return response()->json([
             'message' => 'Profile updated successfully',
@@ -396,12 +485,13 @@ class AuthController extends Controller
                 'email' => $user->masterlist->email,
                 'course' => $user->masterlist->course,
                 'year' => $user->masterlist->year_level,
-                'suffix' => $user->suffix,
-                'region' => $user->region,
-                'province' => $user->province,
-                'municipality' => $user->municipality,
-                'barangay' => $user->barangay,
-                'status' => $user->status,
+                'suffix' => $user->suffix ?? '',
+                'region' => $user->region ?? '',
+                'province' => $user->province ?? '',
+                'municipality' => $user->municipality ?? '',
+                'barangay' => $user->barangay ?? '',
+                'purok' => $user->purok ?? '',
+                'status' => $user->status ?? 'Active',
                 'profile' => $user->profile ?? '',
             ]
         ], 200);
@@ -468,25 +558,56 @@ class AuthController extends Controller
             'email' => 'required|email'
         ]);
 
-        // Check if user exists in users table OR staff table OR admins table
-        $user = User::where('email', $request->email)->first();
-        $userType = 'user';
-        
-        // If not found in users, check staff table
-        if (!$user) {
-            $user = \App\Models\Staff::where('email', $request->email)->first();
-            $userType = 'staff';
+        $user = null;
+        $userType = '';
+        $userEmail = $request->email;
+
+        // FIRST: Check masterlist for student email (pure relationship approach)
+        $masterlist = \App\Models\Masterlist::all()->first(function($m) use ($request) {
+            return $m->email === $request->email;
+        });
+
+        if ($masterlist) {
+            // Found in masterlist, now get the user account
+            $user = User::where('student_id', $masterlist->student_id)->first();
+            if ($user) {
+                $userType = 'client';
+                $userEmail = $masterlist->email; // Use email from masterlist
+                \Log::info('Forgot password - Found client via masterlist', [
+                    'student_id' => $masterlist->student_id,
+                    'email' => $userEmail
+                ]);
+            }
         }
         
-        // If not found in staff, check admins table
+        // If not found as client, check staff table
         if (!$user) {
-            $user = \App\Models\Admin::where('email', $request->email)->first();
-            $userType = 'admin';
+            $user = \App\Models\Staff::all()->first(function($s) use ($request) {
+                return $s->email === $request->email;
+            });
+            if ($user) {
+                $userType = 'staff';
+                $userEmail = $user->email;
+                \Log::info('Forgot password - Found staff', ['email' => $userEmail]);
+            }
+        }
+        
+        // If not found as staff, check admins table
+        if (!$user) {
+            $user = \App\Models\Admin::all()->first(function($a) use ($request) {
+                return $a->email === $request->email;
+            });
+            if ($user) {
+                $userType = 'admin';
+                $userEmail = $user->email;
+                \Log::info('Forgot password - Found admin', ['email' => $userEmail]);
+            }
         }
 
         if (!$user) {
+            \Log::warning('Forgot password - Email not found', ['email' => $request->email]);
             return response()->json([
-                'message' => 'Email not found. Please register first.',
+                'message' => 'Email not found. Please check your email address or register first.',
                 'error' => 'email_not_found'
             ], 404);
         }
@@ -496,18 +617,18 @@ class AuthController extends Controller
 
         // Send OTP via email FIRST (before saving to database)
         try {
-            Mail::to($user->email)->send(new SendOtpMail($otp, $user->email));
+            Mail::to($userEmail)->send(new SendOtpMail($otp, $userEmail));
             
             // Log email sending for debugging
             \Log::info('OTP Email sent successfully', [
-                'email' => $user->email,
+                'email' => $userEmail,
                 'user_type' => $userType,
                 'otp' => $otp
             ]);
         } catch (\Exception $e) {
             // Log the full error for debugging
             \Log::error('Failed to send OTP email', [
-                'email' => $user->email,
+                'email' => $userEmail,
                 'user_type' => $userType,
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
@@ -523,13 +644,13 @@ class AuthController extends Controller
 
         // Only save OTP to database if email was sent successfully
         // Delete any existing unused tokens for this email
-        PasswordResetToken::where('email', $request->email)
+        PasswordResetToken::where('email', $userEmail)
             ->where('is_used', false)
             ->delete();
 
         // Create new password reset token
         $resetToken = PasswordResetToken::create([
-            'email' => $request->email,
+            'email' => $userEmail,
             'otp' => $otp,
             'expires_at' => now()->addMinutes(5), // OTP expires in 5 minutes
             'is_used' => false,
@@ -537,7 +658,7 @@ class AuthController extends Controller
 
         return response()->json([
             'message' => 'OTP sent successfully to your email',
-            'email' => $request->email,
+            'email' => $userEmail,
             'user_type' => $userType // Return user type for frontend reference
         ], 200);
     }
@@ -583,22 +704,57 @@ class AuthController extends Controller
             'email' => 'required|email'
         ]);
 
-        // Check if user exists in users table OR staff table OR admins table
-        $user = User::where('email', $request->email)->first();
-        
-        // If not found in users, check staff table
-        if (!$user) {
-            $user = \App\Models\Staff::where('email', $request->email)->first();
+        $user = null;
+        $userType = '';
+        $userEmail = $request->email;
+
+        // FIRST: Check masterlist for student email (pure relationship approach)
+        $masterlist = \App\Models\Masterlist::all()->first(function($m) use ($request) {
+            return $m->email === $request->email;
+        });
+
+        if ($masterlist) {
+            // Found in masterlist, now get the user account
+            $user = User::where('student_id', $masterlist->student_id)->first();
+            if ($user) {
+                $userType = 'client';
+                $userEmail = $masterlist->email; // Use email from masterlist
+                \Log::info('Resend OTP - Found client via masterlist', [
+                    'student_id' => $masterlist->student_id,
+                    'email' => $userEmail
+                ]);
+            }
         }
         
-        // If not found in staff, check admins table
+        // If not found as client, check staff table
         if (!$user) {
-            $user = \App\Models\Admin::where('email', $request->email)->first();
+            $user = \App\Models\Staff::all()->first(function($s) use ($request) {
+                return $s->email === $request->email;
+            });
+            if ($user) {
+                $userType = 'staff';
+                $userEmail = $user->email;
+                \Log::info('Resend OTP - Found staff', ['email' => $userEmail]);
+            }
+        }
+        
+        // If not found as staff, check admins table
+        if (!$user) {
+            $user = \App\Models\Admin::all()->first(function($a) use ($request) {
+                return $a->email === $request->email;
+            });
+            if ($user) {
+                $userType = 'admin';
+                $userEmail = $user->email;
+                \Log::info('Resend OTP - Found admin', ['email' => $userEmail]);
+            }
         }
 
         if (!$user) {
+            \Log::warning('Resend OTP - Email not found', ['email' => $request->email]);
             return response()->json([
-                'message' => 'User not found'
+                'message' => 'Email not found. Please check your email address.',
+                'error' => 'email_not_found'
             ], 404);
         }
 
@@ -607,17 +763,19 @@ class AuthController extends Controller
 
         // Send OTP via email FIRST (before saving to database)
         try {
-            Mail::to($user->email)->send(new SendOtpMail($otp, $user->email));
+            Mail::to($userEmail)->send(new SendOtpMail($otp, $userEmail));
             
             // Log email sending for debugging
             \Log::info('OTP Email resent successfully', [
-                'email' => $user->email,
+                'email' => $userEmail,
+                'user_type' => $userType,
                 'otp' => $otp
             ]);
         } catch (\Exception $e) {
             // Log the full error for debugging
             \Log::error('Failed to resend OTP email', [
-                'email' => $user->email,
+                'email' => $userEmail,
+                'user_type' => $userType,
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
             ]);
@@ -632,13 +790,13 @@ class AuthController extends Controller
 
         // Only save OTP to database if email was sent successfully
         // Delete any existing unused tokens for this email
-        PasswordResetToken::where('email', $request->email)
+        PasswordResetToken::where('email', $userEmail)
             ->where('is_used', false)
             ->delete();
 
         // Create new password reset token
         $resetToken = PasswordResetToken::create([
-            'email' => $request->email,
+            'email' => $userEmail,
             'otp' => $otp,
             'expires_at' => now()->addMinutes(5),
             'is_used' => false,
@@ -646,7 +804,8 @@ class AuthController extends Controller
 
         return response()->json([
             'message' => 'OTP resent successfully to your email',
-            'email' => $request->email
+            'email' => $userEmail,
+            'user_type' => $userType
         ], 200);
     }
 
@@ -678,27 +837,54 @@ class AuthController extends Controller
             ], 400);
         }
 
-        // Find user in users table OR staff table OR admins table
-        $user = User::where('email', $request->email)->first();
+        $user = null;
+        $userType = '';
         $isStaff = false;
         $isAdmin = false;
-        $userType = 'user';
-        
-        // If not found in users, check staff table
-        if (!$user) {
-            $user = \App\Models\Staff::where('email', $request->email)->first();
-            $isStaff = true;
-            $userType = 'staff';
+
+        // FIRST: Check masterlist for student email (pure relationship approach)
+        $masterlist = \App\Models\Masterlist::all()->first(function($m) use ($request) {
+            return $m->email === $request->email;
+        });
+
+        if ($masterlist) {
+            // Found in masterlist, now get the user account
+            $user = User::where('student_id', $masterlist->student_id)->first();
+            if ($user) {
+                $userType = 'client';
+                \Log::info('Reset password - Found client via masterlist', [
+                    'student_id' => $masterlist->student_id,
+                    'email' => $request->email
+                ]);
+            }
         }
         
-        // If not found in staff, check admins table
+        // If not found as client, check staff table
         if (!$user) {
-            $user = \App\Models\Admin::where('email', $request->email)->first();
-            $isAdmin = true;
-            $userType = 'admin';
+            $user = \App\Models\Staff::all()->first(function($s) use ($request) {
+                return $s->email === $request->email;
+            });
+            if ($user) {
+                $isStaff = true;
+                $userType = 'staff';
+                \Log::info('Reset password - Found staff', ['email' => $request->email]);
+            }
+        }
+        
+        // If not found as staff, check admins table
+        if (!$user) {
+            $user = \App\Models\Admin::all()->first(function($a) use ($request) {
+                return $a->email === $request->email;
+            });
+            if ($user) {
+                $isAdmin = true;
+                $userType = 'admin';
+                \Log::info('Reset password - Found admin', ['email' => $request->email]);
+            }
         }
 
         if (!$user) {
+            \Log::warning('Reset password - User not found', ['email' => $request->email]);
             return response()->json([
                 'message' => 'User not found'
             ], 404);
@@ -766,18 +952,18 @@ class AuthController extends Controller
                 'updated_password_hash' => substr($user->password, 0, 20) . '...'
             ]);
         } else {
-            // For regular users, just hash and save normally
-            \Log::info('Resetting user password', [
+            // For regular client users, just hash and save normally
+            \Log::info('Resetting client password', [
                 'email' => $request->email,
-                'user_id' => $user->id
+                'student_id' => $user->student_id
             ]);
             
             $user->password = Hash::make($request->password);
             $user->save();
             
-            \Log::info('User password reset successful', [
+            \Log::info('Client password reset successful', [
                 'email' => $request->email,
-                'user_id' => $user->id
+                'student_id' => $user->student_id
             ]);
         }
 

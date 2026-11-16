@@ -155,7 +155,7 @@
                 
                 <div class="detail-row">
                     <span class="detail-label">Purpose:</span>
-                    <span class="detail-value">{{ $transaction->purpose }}</span>
+                    <span class="detail-value">{{ $transaction->purpose->name ?? 'N/A' }}</span>
                 </div>
 
                 <div class="detail-row">
@@ -170,7 +170,7 @@
 
                 <div class="detail-row">
                     <span class="detail-label">Address:</span>
-                    <span class="detail-value">{{ $transaction->street_house_no }}, {{ $transaction->brgy }}, {{ $transaction->municipality }}, {{ $transaction->province }}</span>
+                    <span class="detail-value">{{ $transaction->user->barangay ?? '' }}{{ $transaction->user->barangay && $transaction->user->municipality ? ', ' : '' }}{{ $transaction->user->municipality ?? '' }}{{ $transaction->user->municipality && $transaction->user->province ? ', ' : '' }}{{ $transaction->user->province ?? '' }}</span>
                 </div>
 
                 <div class="detail-row">

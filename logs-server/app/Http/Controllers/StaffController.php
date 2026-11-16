@@ -69,12 +69,39 @@ class StaffController extends Controller
         try {
             // Validate the request
             $validator = Validator::make($request->all(), [
-                'staff_id' => 'required|string',
-                'fname' => 'required|string|max:255',
-                'mname' => 'nullable|string|max:255',
-                'lname' => 'required|string|max:255',
-                'email' => 'required|email',
-                'password' => 'required|string|min:6',
+                'staff_id' => 'required|string|max:50',
+                'fname' => [
+                    'required',
+                    'string',
+                    'min:2',
+                    'max:50',
+                    'regex:/^[a-zA-Z\s.-]+$/', // Only letters, spaces, periods, and hyphens
+                ],
+                'mname' => [
+                    'nullable',
+                    'string',
+                    'max:50',
+                    'regex:/^[a-zA-Z\s.-]+$/', // Only letters, spaces, periods, and hyphens
+                ],
+                'lname' => [
+                    'required',
+                    'string',
+                    'min:2',
+                    'max:50',
+                    'regex:/^[a-zA-Z\s.-]+$/', // Only letters, spaces, periods, and hyphens
+                ],
+                'email' => 'required|email|max:255',
+                'password' => [
+                    'required',
+                    'string',
+                    'min:8',
+                    'regex:/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]+$/', // Strong password
+                ],
+            ], [
+                'fname.regex' => 'First name can only contain letters, spaces, periods, and hyphens',
+                'mname.regex' => 'Middle name can only contain letters, spaces, periods, and hyphens',
+                'lname.regex' => 'Last name can only contain letters, spaces, periods, and hyphens',
+                'password.regex' => 'Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character',
             ]);
 
             if ($validator->fails()) {
@@ -117,28 +144,20 @@ class StaffController extends Controller
             }
 
             // Check if email exists in users table
-            if (\App\Models\User::where('email', $request->email)->exists()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'This email is already registered as a client account',
-                ], 422);
-            }
-
-            // Check if email exists in masterlist
             if (\App\Models\Masterlist::where('email', $request->email)->exists()) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'This email already exists in masterlist',
+                    'message' => 'This email is already registered in the system',
                 ], 422);
             }
 
             // Use DB insert to bypass auto-hashing, then manually hash
             $staffId = \DB::table('staff')->insertGetId([
                 'staff_id' => $request->staff_id,
-                'fname' => $request->fname,
-                'mname' => $request->mname,
-                'lname' => $request->lname,
-                'email' => $request->email,
+                'fname' => ucwords(strtolower(trim($request->fname))),
+                'mname' => $request->mname ? ucwords(strtolower(trim($request->mname))) : null,
+                'lname' => ucwords(strtolower(trim($request->lname))),
+                'email' => strtolower(trim($request->email)),
                 'password' => Hash::make($request->password),
                 'status' => 'Active',
                 'created_at' => now(),
@@ -333,6 +352,66 @@ class StaffController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to delete staff member',
+            ], 500);
+        }
+    }
+
+    /**
+     * Update staff status (Active/Inactive)
+     * 
+     * @param \Illuminate\Http\Request $request
+     * @param int $id
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function updateStatus(Request $request, $id)
+    {
+        try {
+            $staff = Staff::findOrFail($id);
+
+            $validator = Validator::make($request->all(), [
+                'status' => 'required|in:Active,Inactive',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Validation failed',
+                    'errors' => $validator->errors(),
+                ], 422);
+            }
+
+            $oldStatus = $staff->status;
+            $staff->status = $request->status;
+            $staff->save();
+
+            // Log activity
+            $authUser = $request->user();
+            if ($authUser) {
+                try {
+                    ActivityLog::create([
+                        'user_type' => $authUser instanceof \App\Models\Admin ? 'admin' : 'staff',
+                        'user_id' => $authUser instanceof \App\Models\Admin ? $authUser->admin_id : $authUser->staff_id,
+                        'user_name' => trim($authUser->fname . ' ' . $authUser->lname),
+                        'action' => 'updated',
+                        'module' => 'Staff',
+                        'description' => 'Changed status of ' . $staff->fname . ' ' . $staff->lname . ' (' . $staff->staff_id . ') from ' . $oldStatus . ' to ' . $request->status,
+                        'ip_address' => $request->ip(),
+                    ]);
+                } catch (\Exception $logError) {
+                    \Log::error('Activity log failed: ' . $logError->getMessage());
+                }
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Staff status updated successfully!',
+                'staff' => $staff,
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to update status',
+                'error' => $e->getMessage(),
             ], 500);
         }
     }

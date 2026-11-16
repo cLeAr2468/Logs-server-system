@@ -15,17 +15,17 @@ class DashboardController extends Controller
      */
     public function getStatistics(Request $request)
     {
-        $userId = $request->user()->id;
+        $studentId = $request->user()->student_id;
 
         // Get appointment statistics
-        $totalAppointments = Transaction::where('user_id', $userId)->count();
-        $completedAppointments = Transaction::where('user_id', $userId)
+        $totalAppointments = Transaction::where('student_id', $studentId)->count();
+        $completedAppointments = Transaction::where('student_id', $studentId)
             ->where('status', 'completed')
             ->count();
-        $approvedAppointments = Transaction::where('user_id', $userId)
+        $approvedAppointments = Transaction::where('student_id', $studentId)
             ->where('status', 'approved')
             ->count();
-        $pendingAppointments = Transaction::where('user_id', $userId)
+        $pendingAppointments = Transaction::where('student_id', $studentId)
             ->where('status', 'pending')
             ->count();
 
@@ -44,11 +44,12 @@ class DashboardController extends Controller
      */
     public function getRecentActivity(Request $request)
     {
-        $userId = $request->user()->id;
+        $studentId = $request->user()->student_id;
         $activities = [];
 
         // Get recent appointments (last 7)
-        $recentAppointments = Transaction::where('user_id', $userId)
+        $recentAppointments = Transaction::where('student_id', $studentId)
+            ->with('purpose')
             ->orderBy('created_at', 'desc')
             ->limit(7)
             ->get();
@@ -65,7 +66,7 @@ class DashboardController extends Controller
         }
 
         // Get recent feedback (last 3)
-        $recentFeedback = Feedback::where('user_id', $userId)
+        $recentFeedback = Feedback::where('student_id', $studentId)
             ->orderBy('created_at', 'desc')
             ->limit(3)
             ->get();
@@ -114,7 +115,7 @@ class DashboardController extends Controller
      */
     private function getAppointmentDescription($appointment)
     {
-        $purpose = ucfirst($appointment->purpose);
+        $purpose = $appointment->purpose ? $appointment->purpose->name : 'Unknown';
         $date = $appointment->appointment_date;
         $time = $appointment->appointment_time;
 
@@ -240,7 +241,7 @@ class DashboardController extends Controller
         $startDate = $request->input('start_date');
         $endDate = $request->input('end_date');
 
-        $query = Transaction::with('user')
+        $query = Transaction::with(['user.masterlist', 'purpose'])
             ->orderBy('created_at', 'desc');
 
         // Filter by date range if provided
@@ -251,13 +252,16 @@ class DashboardController extends Controller
         $transactions = $query->limit($limit)
             ->get()
             ->map(function ($transaction) {
+                $user = $transaction->user;
+                $masterlist = $user ? $user->masterlist : null;
+                
                 return [
                     'id' => $transaction->id,
                     'date' => $transaction->created_at->format('M d, Y'),
-                    'student' => $transaction->user ? $transaction->user->fname . ' ' . $transaction->user->lname : 'N/A',
-                    'purpose' => $transaction->purpose,
+                    'student' => $masterlist ? ($masterlist->fname . ' ' . $masterlist->lname) : 'N/A',
+                    'purpose' => $transaction->purpose ? $transaction->purpose->name : 'N/A',
                     'address' => $transaction->brgy . ', ' . $transaction->municipality,
-                    'course' => $transaction->user->course ?? 'N/A',
+                    'course' => $masterlist ? $masterlist->course : 'N/A',
                     'status' => ucfirst($transaction->status),
                 ];
             });
@@ -269,6 +273,7 @@ class DashboardController extends Controller
 
     /**
      * Get performance summary (transactions by purpose)
+     * Shows ALL purposes that have transactions
      */
     public function getPerformanceSummary(Request $request)
     {
@@ -279,8 +284,8 @@ class DashboardController extends Controller
         $query = Transaction::join('purposes', 'transactions.purpose_id', '=', 'purposes.id')
             ->select('purposes.name as label', DB::raw('count(*) as value'))
             ->groupBy('purposes.id', 'purposes.name')
-            ->orderBy('value', 'desc')
-            ->limit(5);
+            ->orderBy('value', 'desc');
+            // Removed limit - shows ALL purposes with transactions
 
         // Filter by date range if provided
         if ($startDate && $endDate) {
@@ -304,7 +309,7 @@ class DashboardController extends Controller
         $endDate = $request->input('end_date');
         $search = $request->input('search');
 
-        $query = Transaction::with('user')
+        $query = Transaction::with(['user.masterlist', 'purpose'])
             ->orderBy('created_at', 'desc');
 
         // Filter by date range if provided
@@ -315,12 +320,14 @@ class DashboardController extends Controller
         // Search functionality
         if ($search) {
             $query->where(function ($q) use ($search) {
-                $q->where('purpose', 'LIKE', "%{$search}%")
-                  ->orWhere('brgy', 'LIKE', "%{$search}%")
+                $q->where('brgy', 'LIKE', "%{$search}%")
                   ->orWhere('municipality', 'LIKE', "%{$search}%")
-                  ->orWhereHas('user', function ($userQuery) use ($search) {
-                      $userQuery->where('fname', 'LIKE', "%{$search}%")
-                                ->orWhere('lname', 'LIKE', "%{$search}%");
+                  ->orWhereHas('purpose', function ($purposeQuery) use ($search) {
+                      $purposeQuery->where('name', 'LIKE', "%{$search}%");
+                  })
+                  ->orWhereHas('user.masterlist', function ($masterlistQuery) use ($search) {
+                      $masterlistQuery->where('fname', 'LIKE', "%{$search}%")
+                                     ->orWhere('lname', 'LIKE', "%{$search}%");
                   });
             });
         }
@@ -329,13 +336,16 @@ class DashboardController extends Controller
 
         return response()->json([
             'data' => $transactions->map(function ($transaction) {
+                $user = $transaction->user;
+                $masterlist = $user ? $user->masterlist : null;
+                
                 return [
                     'id' => $transaction->id,
                     'date' => $transaction->created_at->format('M d, Y'),
-                    'student' => $transaction->user ? $transaction->user->fname . ' ' . $transaction->user->lname : 'N/A',
-                    'purpose' => $transaction->purpose,
+                    'student' => $masterlist ? ($masterlist->fname . ' ' . $masterlist->lname) : 'N/A',
+                    'purpose' => $transaction->purpose ? $transaction->purpose->name : 'N/A',
                     'address' => $transaction->brgy . ', ' . $transaction->municipality,
-                    'course' => $transaction->user->course ?? 'N/A',
+                    'course' => $masterlist ? $masterlist->course : 'N/A',
                     'status' => ucfirst($transaction->status),
                 ];
             }),

@@ -13,6 +13,7 @@ use App\Http\Controllers\AdminController;
 use App\Http\Controllers\MasterlistController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\PurposeController;
+use App\Http\Controllers\NotificationController;
 
 // Health check endpoint for deployment monitoring
 Route::get('/health', function () {
@@ -67,6 +68,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // User appointment routes
     Route::post('/appointments', [TransactionController::class, 'store']);
     Route::get('/my-appointments', [TransactionController::class, 'getUserTransactions']);
+    Route::get('/my-appointments/{id}', [TransactionController::class, 'getUserTransaction']);
     Route::put('/appointments/{id}', [TransactionController::class, 'update']);
     Route::put('/appointments/{id}/cancel', [TransactionController::class, 'cancel']);
     Route::get('/appointments/available-slots', [TransactionController::class, 'getAvailableSlots']);
@@ -95,6 +97,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/feedback/{id}', [FeedbackController::class, 'show']);
     Route::delete('/feedback/{id}', [FeedbackController::class, 'destroy']);
 
+    // NOTIFICATION ROUTES (for all authenticated users - both client and admin/staff)
+    Route::get('/notifications', [NotificationController::class, 'index']);
+    Route::put('/notifications/{id}/read', [NotificationController::class, 'markAsRead']);
+    Route::put('/notifications/mark-all-read', [NotificationController::class, 'markAllAsRead']);
+
     // DASHBOARD ROUTES
     Route::get('/dashboard/statistics', [DashboardController::class, 'getStatistics']);
     Route::get('/dashboard/recent-activity', [DashboardController::class, 'getRecentActivity']);
@@ -113,13 +120,20 @@ Route::middleware('admin.auth')->group(function () {
     Route::get('/staff', [StaffController::class, 'index']);
     Route::get('/staff/{id}', [StaffController::class, 'show']);
     Route::put('/staff/{id}', [StaffController::class, 'update']);
+    Route::put('/staff/{id}/status', [StaffController::class, 'updateStatus']);
     Route::delete('/staff/{id}', [StaffController::class, 'destroy']);
     Route::post('/staff/logout', [StaffController::class, 'logout']);
     
     // User/Client management (admin/staff access)
-    Route::post('/users', [UserController::class, 'store']); // Create client account (protected)
+    // NOTE: ALL specific routes MUST come BEFORE generic {id} routes
     Route::get('/users', [UserController::class, 'index']);
+    Route::post('/users', [UserController::class, 'store']);
     Route::get('/users/statistics', [UserController::class, 'statistics']);
+    // Sub-routes with {id}/something MUST come before plain {id}
+    Route::get('/users/{id}/transactions/statistics', [UserController::class, 'transactionStatistics']);
+    Route::get('/users/{id}/transactions', [UserController::class, 'userTransactions']);
+    Route::put('/users/{id}/status', [UserController::class, 'updateStatus']);
+    // Plain {id} routes come last
     Route::get('/users/{id}', [UserController::class, 'show']);
     Route::put('/users/{id}', [UserController::class, 'update']);
     Route::delete('/users/{id}', [UserController::class, 'destroy']);
@@ -135,12 +149,14 @@ Route::middleware('admin.auth')->group(function () {
     
     // Announcements (admin/staff access)
     Route::get('/announcements', [AnnouncementController::class, 'index']);
+    Route::get('/announcements/archived', [AnnouncementController::class, 'getArchived']);
     Route::post('/announcements', [AnnouncementController::class, 'store']);
     Route::get('/announcements/{id}', [AnnouncementController::class, 'show']);
     Route::put('/announcements/{id}', [AnnouncementController::class, 'update']);
     Route::delete('/announcements/{id}', [AnnouncementController::class, 'destroy']);
     Route::post('/announcements/{id}/publish', [AnnouncementController::class, 'publish']);
     Route::post('/announcements/{id}/unpublish', [AnnouncementController::class, 'unpublish']);
+    Route::post('/announcements/{id}/restore', [AnnouncementController::class, 'restore']);
     
     // Transaction management by admin/staff
     Route::get('/admin/appointments', [TransactionController::class, 'index']);
