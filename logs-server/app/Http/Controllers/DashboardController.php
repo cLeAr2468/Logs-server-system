@@ -15,28 +15,55 @@ class DashboardController extends Controller
      */
     public function getStatistics(Request $request)
     {
-        $studentId = $request->user()->student_id;
+        try {
+            $user = $request->user();
+            
+            if (!$user) {
+                return response()->json([
+                    'message' => 'Unauthenticated',
+                    'error' => 'User not found'
+                ], 401);
+            }
 
-        // Get appointment statistics
-        $totalAppointments = Transaction::where('student_id', $studentId)->count();
-        $completedAppointments = Transaction::where('student_id', $studentId)
-            ->where('status', 'completed')
-            ->count();
-        $approvedAppointments = Transaction::where('student_id', $studentId)
-            ->where('status', 'approved')
-            ->count();
-        $pendingAppointments = Transaction::where('student_id', $studentId)
-            ->where('status', 'pending')
-            ->count();
+            $studentId = $user->student_id;
 
-        return response()->json([
-            'statistics' => [
-                'total_appointments' => $totalAppointments,
-                'completed_appointments' => $completedAppointments,
-                'approved_appointments' => $approvedAppointments,
-                'pending_appointments' => $pendingAppointments,
-            ]
-        ]);
+            if (!$studentId) {
+                return response()->json([
+                    'message' => 'Student ID not found',
+                    'error' => 'Invalid user data'
+                ], 400);
+            }
+
+            // Get appointment statistics
+            $totalAppointments = Transaction::where('student_id', $studentId)->count();
+            $completedAppointments = Transaction::where('student_id', $studentId)
+                ->where('status', 'completed')
+                ->count();
+            $approvedAppointments = Transaction::where('student_id', $studentId)
+                ->where('status', 'approved')
+                ->count();
+            $pendingAppointments = Transaction::where('student_id', $studentId)
+                ->where('status', 'pending')
+                ->count();
+
+            return response()->json([
+                'statistics' => [
+                    'total_appointments' => $totalAppointments,
+                    'completed_appointments' => $completedAppointments,
+                    'approved_appointments' => $approvedAppointments,
+                    'pending_appointments' => $pendingAppointments,
+                ]
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Dashboard statistics error: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            return response()->json([
+                'message' => 'Failed to fetch dashboard statistics',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
     /**
@@ -44,55 +71,83 @@ class DashboardController extends Controller
      */
     public function getRecentActivity(Request $request)
     {
-        $studentId = $request->user()->student_id;
-        $activities = [];
+        try {
+            $user = $request->user();
+            
+            if (!$user) {
+                return response()->json([
+                    'message' => 'Unauthenticated',
+                    'error' => 'User not found'
+                ], 401);
+            }
 
-        // Get recent appointments (last 7)
-        $recentAppointments = Transaction::where('student_id', $studentId)
-            ->with('purpose')
-            ->orderBy('created_at', 'desc')
-            ->limit(7)
-            ->get();
+            $studentId = $user->student_id;
 
-        foreach ($recentAppointments as $appointment) {
-            $activities[] = [
-                'type' => 'appointment',
-                'action' => $this->getAppointmentAction($appointment->status),
-                'description' => $this->getAppointmentDescription($appointment),
-                'timestamp' => $appointment->created_at,
-                'status' => $appointment->status,
-                'icon' => $this->getActivityIcon('appointment', $appointment->status),
-            ];
+            if (!$studentId) {
+                return response()->json([
+                    'message' => 'Student ID not found',
+                    'error' => 'Invalid user data'
+                ], 400);
+            }
+
+            $activities = [];
+
+            // Get recent appointments (last 7)
+            $recentAppointments = Transaction::where('student_id', $studentId)
+                ->with('purpose')
+                ->orderBy('created_at', 'desc')
+                ->limit(7)
+                ->get();
+
+            foreach ($recentAppointments as $appointment) {
+                $activities[] = [
+                    'type' => 'appointment',
+                    'action' => $this->getAppointmentAction($appointment->status),
+                    'description' => $this->getAppointmentDescription($appointment),
+                    'timestamp' => $appointment->created_at,
+                    'status' => $appointment->status,
+                    'icon' => $this->getActivityIcon('appointment', $appointment->status),
+                ];
+            }
+
+            // Get recent feedback (last 3) using the relationship
+            $recentFeedback = $user->feedback()
+                ->orderBy('created_at', 'desc')
+                ->limit(3)
+                ->get();
+
+            foreach ($recentFeedback as $feedback) {
+                $activities[] = [
+                    'type' => 'feedback',
+                    'action' => 'Feedback Submitted',
+                    'description' => "You submitted a {$feedback->rating}-star feedback",
+                    'timestamp' => $feedback->created_at,
+                    'rating' => $feedback->rating,
+                    'icon' => 'MessageSquare',
+                ];
+            }
+
+            // Sort by timestamp descending
+            usort($activities, function ($a, $b) {
+                return $b['timestamp'] <=> $a['timestamp'];
+            });
+
+            // Limit to 10 most recent activities
+            $activities = array_slice($activities, 0, 10);
+
+            return response()->json([
+                'activities' => $activities
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Dashboard recent activity error: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            return response()->json([
+                'message' => 'Failed to fetch recent activity',
+                'error' => $e->getMessage()
+            ], 500);
         }
-
-        // Get recent feedback (last 3)
-        $recentFeedback = Feedback::where('student_id', $studentId)
-            ->orderBy('created_at', 'desc')
-            ->limit(3)
-            ->get();
-
-        foreach ($recentFeedback as $feedback) {
-            $activities[] = [
-                'type' => 'feedback',
-                'action' => 'Feedback Submitted',
-                'description' => "You submitted a {$feedback->rating}-star feedback",
-                'timestamp' => $feedback->created_at,
-                'rating' => $feedback->rating,
-                'icon' => 'MessageSquare',
-            ];
-        }
-
-        // Sort by timestamp descending
-        usort($activities, function ($a, $b) {
-            return $b['timestamp'] <=> $a['timestamp'];
-        });
-
-        // Limit to 10 most recent activities
-        $activities = array_slice($activities, 0, 10);
-
-        return response()->json([
-            'activities' => $activities
-        ]);
     }
 
     /**
