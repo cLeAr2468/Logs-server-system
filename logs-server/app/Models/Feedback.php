@@ -12,7 +12,7 @@ class Feedback extends Model
     protected $table = 'feedback';
 
     protected $fillable = [
-        'student_id',
+        'user_id',
         'transaction_id',
         'purpose_id',
         'rating',
@@ -30,7 +30,7 @@ class Feedback extends Model
      */
     public function user()
     {
-        return $this->belongsTo(User::class, 'student_id', 'student_id');
+        return $this->belongsTo(User::class, 'user_id', 'id');
     }
 
     /**

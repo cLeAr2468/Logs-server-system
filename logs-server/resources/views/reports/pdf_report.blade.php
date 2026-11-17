@@ -283,15 +283,15 @@
     <table>
         <thead>
             <tr>
-                <th>Date</th>
+                <th>Date Requested</th>
                 <th>Student ID</th>
                 <th>Name</th>
                 <th>Course</th>
                 <th>Year</th>
                 <th>Purpose</th>
-                <th>Schedule</th>
+                <th>Appointment Date</th>
                 <th>Status</th>
-                <th>Updated</th>
+                <th>Last Updated</th>
             </tr>
         </thead>
         <tbody>
@@ -318,7 +318,7 @@
                 <td>{{ $course }}</td>
                 <td>{{ $yearLevel }}</td>
                 <td>{{ $purposeName }}</td>
-                <td>{{ $transaction->schedule_date ?? 'N/A' }}</td>
+                <td>{{ $transaction->schedule_date ? date('M d, Y', strtotime($transaction->schedule_date)) : 'N/A' }}</td>
                 <td>
                     <span class="status-badge status-{{ $transaction->status }}">
                         {{ ucfirst($transaction->status) }}
@@ -376,10 +376,10 @@
                 <th>Student Name</th>
                 <th>Student ID</th>
                 <th>Transaction Purpose</th>
-                <th>Transaction Date</th>
+                <th>Appointment Date</th>
                 <th style="text-align: center;">Rating</th>
                 <th>Feedback Message</th>
-                <th>Submitted Date</th>
+                <th>Date Submitted</th>
             </tr>
         </thead>
         <tbody>
@@ -401,7 +401,7 @@
                 <td>{{ $studentName }}</td>
                 <td>{{ $feedback->user->student_id ?? 'N/A' }}</td>
                 <td>{{ $purposeName }}</td>
-                <td>{{ date('M d, Y', strtotime($feedback->transaction_date ?? $feedback->created_at)) }}</td>
+                <td>{{ $feedback->transaction ? date('M d, Y', strtotime($feedback->transaction->schedule_date)) : 'N/A' }}</td>
                 <td style="text-align: center;">{{ $feedback->rating }}/5</td>
                 <td>{{ $feedback->message ?: 'No comment provided' }}</td>
                 <td>{{ date('M d, Y', strtotime($feedback->created_at)) }}</td>

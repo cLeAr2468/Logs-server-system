@@ -240,9 +240,9 @@ class TransactionController extends Controller
             'time_slot' => 'sometimes|required|string',
         ]);
 
-        // Find transaction
+        // Find transaction - use student_id as primary key
         $transaction = Transaction::where('id', $id)
-            ->where('student_id', $request->user()->id)
+            ->where('student_id', $request->user()->student_id)
             ->first();
 
         if (!$transaction) {
@@ -263,7 +263,7 @@ class TransactionController extends Controller
 
         // If purpose changed, check for duplicate purpose
         if ($purposeChanged) {
-            $existingPurposeAppointment = Transaction::where('student_id', $request->user()->id)
+            $existingPurposeAppointment = Transaction::where('student_id', $request->user()->student_id)
                 ->where('purpose_id', $request->purpose_id)
                 ->where('id', '!=', $id) // Exclude current appointment
                 ->whereIn('status', ['pending', 'approved'])

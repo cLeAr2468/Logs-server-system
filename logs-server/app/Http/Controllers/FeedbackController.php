@@ -8,11 +8,11 @@ use Illuminate\Http\Request;
 class FeedbackController extends Controller
 {
     /**
-     * Get all feedback (Admin only)
+     * Get all feedback (Admin only) - Pure Relationship
      */
     public function index(Request $request)
     {
-        $query = Feedback::with(['user.masterlist', 'purpose'])
+        $query = Feedback::with(['user.masterlist', 'purpose', 'transaction'])
             ->orderBy('created_at', 'desc');
 
         // Filter by rating if provided
@@ -31,7 +31,7 @@ class FeedbackController extends Controller
      */
     public function getUserFeedback(Request $request)
     {
-        $feedback = Feedback::where('student_id', $request->user()->student_id)
+        $feedback = Feedback::where('user_id', $request->user()->id)
             ->with(['purpose', 'transaction'])
             ->orderBy('created_at', 'desc')
             ->get();
@@ -76,9 +76,9 @@ class FeedbackController extends Controller
             ], 409);
         }
 
-        // Create feedback with transaction reference (using purpose relationship)
+        // Create feedback with pure relationships (transaction and purpose)
         $feedback = Feedback::create([
-            'student_id' => $user->student_id,
+            'user_id' => $user->id,
             'transaction_id' => $transaction->id,
             'purpose_id' => $transaction->purpose_id,
             'rating' => $request->rating,
@@ -129,7 +129,7 @@ class FeedbackController extends Controller
 
             // Get all transaction IDs that already have feedback
             $feedbackTransactionIds = \DB::table('feedback')
-                ->where('student_id', $user->student_id)
+                ->where('user_id', $user->id)
                 ->whereNotNull('transaction_id')
                 ->pluck('transaction_id')
                 ->toArray();
@@ -177,7 +177,7 @@ class FeedbackController extends Controller
 
         // Check if there's feedback for THIS SPECIFIC transaction by transaction_id
         $feedback = Feedback::where('transaction_id', $transactionId)
-            ->where('student_id', $user->student_id)
+            ->where('user_id', $user->id)
             ->with(['user.masterlist', 'transaction', 'purpose'])
             ->first();
 
