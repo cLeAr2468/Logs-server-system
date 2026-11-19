@@ -383,17 +383,10 @@ class AdminController extends Controller
             }
 
             // Otherwise, update staff profile
-            // Validate staff_id and email uniqueness for staff
-            if ($request->has('staff_id') && $request->staff_id !== $user->staff_id) {
-                $existingStaff = Staff::where('staff_id', $request->staff_id)->where('id', '!=', $user->id)->first();
-                if ($existingStaff) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Staff ID already in use',
-                    ], 422);
-                }
-            }
-
+            // Staff accounts can only update: firstname, middlename, lastname, email
+            // Staff ID and status are NOT editable by staff themselves
+            
+            // Validate email uniqueness for staff
             if ($request->has('email') && $request->email !== $user->email) {
                 $existingStaff = Staff::where('email', $request->email)->where('id', '!=', $user->id)->first();
                 if ($existingStaff) {
@@ -404,11 +397,7 @@ class AdminController extends Controller
                 }
             }
 
-            // Update staff fields
-            if ($request->has('staff_id')) {
-                $user->staff_id = $request->staff_id;
-            }
-            
+            // Update staff fields (staff_id and status are NOT updated)
             if ($request->has('firstname')) {
                 $user->fname = $request->firstname;
             }
@@ -423,10 +412,6 @@ class AdminController extends Controller
             
             if ($request->has('email')) {
                 $user->email = $request->email;
-            }
-            
-            if ($request->has('status')) {
-                $user->status = $request->status;
             }
 
             $user->save();
