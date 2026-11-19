@@ -90,6 +90,7 @@ class StaffController extends Controller
                     'max:50',
                     'regex:/^[a-zA-Z\s.-]+$/', // Only letters, spaces, periods, and hyphens
                 ],
+                'suffix' => 'nullable|string|max:10',
                 'email' => 'required|email|max:255',
                 'password' => [
                     'required',
@@ -157,6 +158,7 @@ class StaffController extends Controller
                 'fname' => ucwords(strtolower(trim($request->fname))),
                 'mname' => $request->mname ? ucwords(strtolower(trim($request->mname))) : null,
                 'lname' => ucwords(strtolower(trim($request->lname))),
+                'suffix' => $request->suffix && trim($request->suffix) !== '' ? trim($request->suffix) : null,
                 'email' => strtolower(trim($request->email)),
                 'password' => Hash::make($request->password),
                 'status' => 'Active',

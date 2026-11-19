@@ -279,6 +279,7 @@ class AdminController extends Controller
                     'firstname' => $user->fname,
                     'middlename' => $user->mname,
                     'lastname' => $user->lname,
+                    'suffix' => $user->suffix ?? '',
                     'full_name' => trim("{$user->fname} {$user->mname} {$user->lname}"),
                     'status' => $user->status ?? 'Active',
                 ],
@@ -318,6 +319,7 @@ class AdminController extends Controller
                 'middlename' => 'nullable',
                 'lastname' => 'sometimes|required',
                 'email' => 'sometimes|required|email',
+                'suffix' => 'nullable|string|max:10',
                 'status' => 'nullable',
             ]);
 
@@ -410,6 +412,10 @@ class AdminController extends Controller
                 $user->lname = $request->lastname;
             }
             
+            if ($request->has('suffix')) {
+                $user->suffix = $request->suffix && trim($request->suffix) !== '' ? trim($request->suffix) : null;
+            }
+            
             if ($request->has('email')) {
                 $user->email = $request->email;
             }
@@ -427,6 +433,7 @@ class AdminController extends Controller
                     'firstname' => $user->fname,
                     'middlename' => $user->mname,
                     'lastname' => $user->lname,
+                    'suffix' => $user->suffix ?? '',
                     'full_name' => trim("{$user->fname} {$user->mname} {$user->lname}"),
                     'status' => $user->status ?? 'Active',
                 ],

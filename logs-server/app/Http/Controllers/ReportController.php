@@ -439,23 +439,25 @@ class ReportController extends Controller
             
             \Log::info('PDF data prepared', ['transactions_count' => $transactions->count()]);
             
-            // Add intro text based on report type
-            if ($reportType === 'Monthly Transaction Summary' || $reportType === 'Student Affairs Services Summary') {
-                $data['introText'] = 'The Student Affairs and Services (SAS) Office continuously provided frontline services to students by facilitating various student-related documents, requests, and scholarship requirements. These services aimed to ensure the efficient, timely, and organized delivery of assistance to students.';
-                
-                $data['servicesList'] = [
-                    'Conducted student ID validation and assisted students with ID-related concerns.',
-                    'Processed and released Certificates of Good Moral Character.',
-                    'Processed and released Student Clearance Forms.',
-                    'Processed and released Affidavits of Loss for School IDs.',
-                    'Distributed and released Student Handbooks.',
-                    'Processed and issued various certifications and other requested student documents.',
-                    'Received, checked, organized, and gathered documentary requirements for scholarship applications and grants.',
-                    'Assisted students in completing and complying with the necessary requirements for their scholarship applications and other student-related concerns.'
-                ];
-                
-                $data['conclusionText'] = 'Through these frontline services, the SAS Office was able to provide direct assistance to students, facilitate the processing and release of important documents, and ensure the proper collection and organization of scholarship requirements. The continuous delivery of these services contributed to the efficient and effective implementation of the office\'s programs and services for the student community.';
-            } elseif ($reportType === 'Student ID Validation Report') {
+            // Add default intro text and description for all PDF reports
+            $data['introText'] = 'The Student Affairs and Services (SAS) Office continuously provided frontline services to students by facilitating various student-related documents, requests, and scholarship requirements. These services aimed to ensure the efficient, timely, and organized delivery of assistance to students.';
+            
+            $data['servicesList'] = [
+                'Conducted student ID validation and assisted students with ID-related concerns.',
+                'Processed and released Certificates of Good Moral Character.',
+                'Processed and released Student Clearance Forms.',
+                'Processed and released Affidavits of Loss for School IDs.',
+                'Distributed and released Student Handbooks.',
+                'Processed and issued various certifications and other requested student documents.',
+                'Received, checked, organized, and gathered documentary requirements for scholarship applications and grants.',
+                'Assisted students in completing and complying with the necessary requirements for their scholarship applications and other student-related concerns.'
+            ];
+            
+            $data['conclusionText'] = 'Through these frontline services, the SAS Office was able to provide direct assistance to students, facilitate the processing and release of important documents, and ensure the proper collection and organization of scholarship requirements. The continuous delivery of these services contributed to the efficient and effective implementation of the office\'s programs and services for the student community.';
+            
+            // Keep backward compatibility - override only if specific report type is set
+            if ($reportType === 'Student ID Validation Report') {
+                // Keep existing specific text for ID validation
                 $data['introText'] = 'The Student Affairs and Services (SAS) Office provided student ID validation services to ensure proper identification and verification of students.';
                 $data['servicesList'] = [
                     'Conducted student ID validation and verification.',
