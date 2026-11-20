@@ -439,88 +439,53 @@ class ReportController extends Controller
             
             \Log::info('PDF data prepared', ['transactions_count' => $transactions->count()]);
             
-            // Add default intro text and description for all PDF reports
-            $data['introText'] = 'The Student Affairs and Services (SAS) Office continuously provided frontline services to students by facilitating various student-related documents, requests, and scholarship requirements. These services aimed to ensure the efficient, timely, and organized delivery of assistance to students.';
-            
-            $data['servicesList'] = [
-                'Conducted student ID validation and assisted students with ID-related concerns.',
-                'Processed and released Certificates of Good Moral Character.',
-                'Processed and released Student Clearance Forms.',
-                'Processed and released Affidavits of Loss for School IDs.',
-                'Distributed and released Student Handbooks.',
-                'Processed and issued various certifications and other requested student documents.',
-                'Received, checked, organized, and gathered documentary requirements for scholarship applications and grants.',
-                'Assisted students in completing and complying with the necessary requirements for their scholarship applications and other student-related concerns.'
+            // Generate dynamic services list based on actual transaction purposes in the data
+            $purposeMapping = [
+                'ID Validation' => 'Conducted student ID validation and assisted students with ID-related concerns.',
+                'Good Moral' => 'Processed and released Certificates of Good Moral Character.',
+                'Clearance' => 'Processed and released Student Clearance Forms.',
+                'Affidavit of Loss' => 'Processed and released Affidavits of Loss for School IDs.',
+                'Student Handbook' => 'Distributed and released Student Handbooks.',
+                'Certificate Request' => 'Processed and issued various certifications and other requested student documents.',
+                'Scholarship Application' => 'Received, checked, organized, and gathered documentary requirements for scholarship applications and grants.',
+                'Document Request' => 'Assisted students in completing and complying with the necessary requirements for their scholarship applications and other student-related concerns.',
+                // Add more mappings as needed
             ];
             
-            $data['conclusionText'] = 'Through these frontline services, the SAS Office was able to provide direct assistance to students, facilitate the processing and release of important documents, and ensure the proper collection and organization of scholarship requirements. The continuous delivery of these services contributed to the efficient and effective implementation of the office\'s programs and services for the student community.';
+            // Get unique purposes from the actual filtered transactions
+            $actualPurposes = $transactions->pluck('purpose.name')->filter()->unique()->sort()->values();
             
-            // Keep backward compatibility - override only if specific report type is set
-            if ($reportType === 'Student ID Validation Report') {
-                // Keep existing specific text for ID validation
-                $data['introText'] = 'The Student Affairs and Services (SAS) Office provided student ID validation services to ensure proper identification and verification of students.';
-                $data['servicesList'] = [
-                    'Conducted student ID validation and verification.',
-                    'Assisted students with ID-related concerns and issues.',
-                    'Ensured proper identification of students for various services.'
-                ];
-                $data['conclusionText'] = 'Through this service, the SAS Office ensured that students have proper identification for accessing campus services and facilities.';
-            } elseif ($reportType === 'Good Moral Character Certificates') {
-                $data['introText'] = 'The Student Affairs and Services (SAS) Office processed and released Certificates of Good Moral Character to students for various purposes.';
-                $data['servicesList'] = [
-                    'Processed requests for Certificates of Good Moral Character.',
-                    'Verified student records and conduct.',
-                    'Released certificates to eligible students.'
-                ];
-                $data['conclusionText'] = 'Through this service, the SAS Office provided students with necessary documentation for employment, further studies, and other official purposes.';
-            } elseif ($reportType === 'Student Clearance Forms Report') {
-                $data['introText'] = 'The Student Affairs and Services (SAS) Office processed and released Student Clearance Forms as required for graduation, transfer, and other purposes.';
-                $data['servicesList'] = [
-                    'Processed student clearance form requests.',
-                    'Coordinated with various offices for clearance verification.',
-                    'Released clearance forms to students.'
-                ];
-                $data['conclusionText'] = 'Through this service, the SAS Office facilitated the proper clearance process for students.';
-            } elseif ($reportType === 'Affidavits of Loss Report') {
-                $data['introText'] = 'The Student Affairs and Services (SAS) Office processed Affidavits of Loss for students who lost their school IDs and other important documents.';
-                $data['servicesList'] = [
-                    'Processed affidavit of loss requests for school IDs.',
-                    'Assisted students in completing required documentation.',
-                    'Facilitated the issuance of replacement IDs.'
-                ];
-                $data['conclusionText'] = 'Through this service, the SAS Office helped students replace lost identification documents efficiently.';
-            } elseif ($reportType === 'Student Handbooks Distribution') {
-                $data['introText'] = 'The Student Affairs and Services (SAS) Office distributed Student Handbooks to provide students with important information about policies, guidelines, and campus life.';
-                $data['servicesList'] = [
-                    'Distributed Student Handbooks to students.',
-                    'Ensured students received essential information about campus policies.',
-                    'Tracked handbook distribution records.'
-                ];
-                $data['conclusionText'] = 'Through this service, the SAS Office ensured that students are well-informed about institutional policies and guidelines.';
-            } elseif ($reportType === 'Certifications and Documents Report') {
-                $data['introText'] = 'The Student Affairs and Services (SAS) Office processed and issued various certifications and documents requested by students.';
-                $data['servicesList'] = [
-                    'Processed requests for various certifications.',
-                    'Verified student information and records.',
-                    'Issued certified documents to students.'
-                ];
-                $data['conclusionText'] = 'Through this service, the SAS Office provided students with necessary documentation for various official purposes.';
-            } elseif ($reportType === 'Scholarship Applications Report') {
-                $data['introText'] = 'The Student Affairs and Services (SAS) Office received and processed scholarship application requirements and documentation.';
-                $data['servicesList'] = [
-                    'Received scholarship application documents.',
-                    'Verified and organized scholarship requirements.',
-                    'Assisted students with scholarship application processes.'
-                ];
-                $data['conclusionText'] = 'Through this service, the SAS Office facilitated access to scholarship opportunities for students.';
-            } elseif ($reportType === 'Documentary Requirements Report') {
-                $data['introText'] = 'The Student Affairs and Services (SAS) Office collected, checked, and organized various documentary requirements for students.';
-                $data['servicesList'] = [
-                    'Received and checked documentary requirements.',
-                    'Organized student documents systematically.',
-                    'Assisted students in completing their document submissions.'
-                ];
-                $data['conclusionText'] = 'Through this service, the SAS Office ensured proper documentation and record-keeping for student services.';
+            // Build dynamic services list based on what's actually in the data
+            $dynamicServicesList = [];
+            foreach ($actualPurposes as $purposeName) {
+                if (isset($purposeMapping[$purposeName])) {
+                    $dynamicServicesList[] = $purposeMapping[$purposeName];
+                } else {
+                    // Generic fallback for unmapped purposes
+                    $dynamicServicesList[] = "Processed and facilitated {$purposeName} transactions for students.";
+                }
+            }
+            
+            // If no purposes found, use a generic message
+            if (empty($dynamicServicesList)) {
+                $dynamicServicesList = ['No transactions were recorded for the selected period and filters.'];
+            }
+            
+            $data['servicesList'] = $dynamicServicesList;
+            
+            // Dynamic intro and conclusion based on what services were actually provided
+            if (count($actualPurposes) > 0) {
+                $purposeList = $actualPurposes->take(3)->implode(', ');
+                if (count($actualPurposes) > 3) {
+                    $purposeList .= ', and other services';
+                }
+                
+                $data['introText'] = "The Student Affairs and Services (SAS) Office continuously provided frontline services to students by facilitating various student-related documents, requests, and scholarship requirements. During this period, the office primarily handled {$purposeList}. These services aimed to ensure the efficient, timely, and organized delivery of assistance to students.";
+                
+                $data['conclusionText'] = 'Through these frontline services, the SAS Office was able to provide direct assistance to students, facilitate the processing and release of important documents, and ensure the proper collection and organization of requirements. The continuous delivery of these services contributed to the efficient and effective implementation of the office\'s programs and services for the student community.';
+            } else {
+                $data['introText'] = 'The Student Affairs and Services (SAS) Office continuously provides frontline services to students by facilitating various student-related documents, requests, and scholarship requirements.';
+                $data['conclusionText'] = 'The SAS Office remains committed to providing efficient service delivery to the student community.';
             }
             
             // Add signature information
